@@ -45,9 +45,10 @@ Infuse-level quality on Windows:
 
 ## Status (2026-11-02)
 
-Engine-spike stage. `spike/EngineSpike` is a throwaway WinUI 3 harness that plays a file through
-either engine in the same window and logs what each one negotiated. There is no library UI or Plex
-code yet. Proven so far (details and tables in README.md):
+The real app (`src/Marquee`) exists: Plex PIN sign-in and sync, local folders with TMDB matching, a
+SQLite library, the Home / Movies / TV / detail / Sources / Settings screens, and the player on both
+engines. `spike/EngineSpike` remains the engine test harness. Engine work proven in the spike
+(details and tables in README.md):
 
 - mpv embedded in a WinUI window with its own HDR swap chain.
 - Real Dolby Vision through Media Foundation for MP4 **and MKV** (profiles 5 and 8), confirmed on
@@ -65,18 +66,61 @@ code yet. Proven so far (details and tables in README.md):
   - Tested on 17 P7 remuxes; all convert: 10 MEL (lossless) and 7 FEL (EL precision dropped).
   - Confirmed on a Dolby Vision display, with a correct picture, for both MEL and FEL.
 
-Next, in order:
+Next:
 
-1. HTTP reading for the MKV reader (Plex direct-play URLs, with range requests).
-2. Subtitles for the Media Foundation engine (XAML overlay; SRT, ASS, PGS).
-3. Engine routing rules.
-4. Then the real app: library, Plex and an Infuse-style UI on top of both engines.
+1. Subtitles for the Media Foundation engine (XAML overlay; SRT, ASS, PGS), so subtitles stop
+   forcing mpv (and HDR10 instead of real Dolby Vision).
+2. Matroska chapters in the MKV reader (chapters currently come from Plex or mpv).
+3. Display handling: HDR on/off and refresh-rate matching.
+4. .NET 10 LTS (only the .NET 9 SDK is installed; .NET 9 support ends November 2026).
+
+## The app (`src/Marquee`)
+
+- **Shell:** `Shell/MainWindow` is Mica + the WinUI `TitleBar` control (search box in it) +
+  `NavigationView`. Pages live in a `Frame`; Home and Library cache themselves and restore scroll.
+  The player is a full-window layer over the shell (`ShowPlayerLayer`), not a page.
+- **Look:** the design is a dark graphite / amber canvas ("Nightfall" was the designer's placeholder
+  name). `Themes/Palette.xaml` overrides WinUI's own resources (system accent colours, button,
+  combo box, nav and expander brushes) so native controls take the palette; `Themes/Styles.xaml`
+  holds text and button styles; `Themes/Generic.xaml` the `SettingsCard` template. Icons are Segoe
+  Fluent Icons glyphs; the app icon is rendered by `tools/make-icon.ps1`.
+- **Data:** `Data/LibraryDatabase.cs`, SQLite via Microsoft.Data.Sqlite at
+  `%LOCALAPPDATA%\Marquee\library.db`. One `items` table for movies/shows/seasons/episodes (ids
+  `p:{server}:{ratingKey}` for Plex, `f:{hash}` / `fs:{hash}` for files), file versions and cached
+  details (cast, streams, chapters, markers) as JSON columns, `matches` for TMDB, `meta` for
+  settings and secrets. Plex and TMDB tokens are DPAPI-encrypted (`Data/Secrets.cs`). Schema is
+  versioned with `PRAGMA user_version`; migrations are idempotent `CREATE ... IF NOT EXISTS`.
+- **Plex:** `Plex/PlexService` (PIN sign-in, `plex.tv/api/v2/resources`, a connection chosen by
+  probing local → remote → relay), `PlexServerApi` (paged listings, metadata, timeline, scrobble),
+  `PlexMapper` (JSON → rows). Image references are stored as `plex:{server}:{path}` and resolved
+  to the server's photo transcoder at display time, so a server changing address breaks nothing.
+  Direct play is the part URL plus the token; the MKV reader reads it through `HttpRangeStream`.
+- **Sync:** `Library/LibrarySync` runs a full Plex pass (types 1–4) and On Deck at startup and
+  every 30 min, rescans watched folders on change (debounced), then `TmdbMatcher` matches local
+  items. A rescan re-applies stored matches without calling TMDB; manual matches are locked.
+  Local artwork next to the files beats TMDB's.
+- **Player:** `Player/PlaybackPlanner` picks the version, audio (preferred language → Atmos →
+  lossless → channels), subtitles (off / forced-only / always), resume point and engine.
+  Automatic routing uses Media Foundation only when it adds something (real DV, Atmos objects,
+  DTS:X) and no full subtitles are wanted. `MpvEngine` and `MediaFoundationEngine` implement
+  `IPlayerEngine`; `PlayerView` runs a 50 ms tick, reports Plex timeline/progress every 10 s,
+  scrobbles at 90 % or the final credits, shows skip-intro/credits from markers and counts down
+  to the next episode. The user's star rating (`RatingControl`, Plex's 0–10 `userRating`) syncs
+  through `/:/rate`; local items keep theirs across rescans.
+- **Controls over mpv:** XAML can't draw over mpv's child HWND, so the controls live in
+  `Player/OverlayWindow`: a borderless, owned, non-activating top-level window kept over the video,
+  hosting a second `PlayerControls` bound to the same view model. Over Media Foundation the
+  controls are inline.
+- **Logs:** `%LOCALAPPDATA%\Marquee\marquee.log` (startup, playback decisions, MKV reader,
+  errors) and `mpv.log` next to it.
 
 ## Tech stack
 
 - C# on .NET 9 (the only SDK installed; it goes out of support in November 2026, so the real app
   should target .NET 10 LTS). WinUI 3 via Windows App SDK 2.6.4, unpackaged
   (`WindowsPackageType=None`), self-contained, x64 only.
+- App packages: Microsoft.Data.Sqlite and System.Security.Cryptography.ProtectedData 9.0.22,
+  CommunityToolkit.Mvvm 8.4.2.
 - **libmpv**: `libmpv-2.dll` from shinchiro's `mpv-dev-x86_64-v3` builds. `tools/fetch-libmpv.ps1`
   downloads it into `lib/` (gitignored), and the csproj copies it to the output. P/Invoke lives in
   `Mpv/LibMpv.cs`.
@@ -184,19 +228,35 @@ Next, in order:
 ## Repo layout
 
 ```
-spike/EngineSpike/     WinUI 3 test harness: both engines, A/B, probes
-  Mpv/                 libmpv P/Invoke and player wrapper
-  MediaFoundation/     MF diagnostics and the Atmos probe
-  Matroska/            Marquee's MKV demuxer and MediaStreamSource
-  Interop/             Win32 child window that hosts mpv; Store codec runtime preload
-  SpatialAudio/        Windows Spatial Sound output, TrueHD Atmos playback, Atmos lab
-  samples.txt          your test files, label|path (gitignored; copy samples.example.txt)
-native/truehd-ffi/     Rust C ABI over the truehd crate (TrueHD Atmos)
-native/dovi-ffi/       Rust C ABI over the dolby_vision crate (DV RPU conversion)
-tools/                 fetch-libmpv.ps1, fetch-ffmpeg.ps1, build-native.ps1
-lib/                   libmpv-2.dll, ffmpeg/, truehd/, dovi/ (gitignored, fetched or built)
-mise.toml              Rust toolchain pin
+src/Marquee/              The app (WinUI 3)
+  Shell/                  MainWindow, theme accent, formatting, log
+  Pages/                  Home, Library, movie/show detail, Sources, Settings, match dialog
+  Controls/               Poster/episode cards (hover lift + glow), episode row, SettingsCard
+  Player/                 Planner, engines, PlayerView, PlayerControls, overlay window
+  Data/                   SQLite library, models, settings, DPAPI secrets
+  Plex/                   plex.tv + Plex Media Server API, JSON mapping
+  Library/                Sync, folder scanner, file-name parser, TMDB, details, watch state
+  Imaging/                Disk image cache, Img.Source attached property, average colour
+  Themes/                 Palette (overrides WinUI resources), styles, Generic.xaml
+  Assets/                 App icon (generated by tools/make-icon.ps1)
+src/Marquee.Playback/     Engine library shared by the app and the spike
+  Mpv/                    libmpv P/Invoke and player wrapper
+  MediaFoundation/        MF diagnostics and the Atmos probe
+  Matroska/               Marquee's MKV demuxer and MediaStreamSource
+  IO/                     File/URL opening, HttpRangeStream for Plex direct play
+  Interop/                Win32 child window that hosts mpv; Store codec runtime preload
+  SpatialAudio/           Windows Spatial Sound output, TrueHD Atmos playback
+spike/EngineSpike/        WinUI 3 test harness: both engines, A/B, probes, Atmos lab
+  samples.txt             your test files, label|path (gitignored; copy samples.example.txt)
+native/truehd-ffi/        Rust C ABI over the truehd crate (TrueHD Atmos)
+native/dovi-ffi/          Rust C ABI over the dolby_vision crate (DV RPU conversion)
+tools/                    fetch-libmpv.ps1, fetch-ffmpeg.ps1, build-native.ps1, make-icon.ps1
+lib/                      libmpv-2.dll, ffmpeg/, truehd/, dovi/ (gitignored, fetched or built)
+mise.toml                 Rust toolchain pin
 ```
+
+The engine code is `internal`; `Marquee.Playback` grants `InternalsVisibleTo` to `Marquee` and
+`EngineSpike`. Its csproj carries the native DLLs, which flow into both outputs.
 
 ## Build, run, test
 
@@ -205,9 +265,19 @@ mise install                      # Rust 1.99.1, pinned in mise.toml
 ./tools/fetch-libmpv.ps1
 ./tools/fetch-ffmpeg.ps1
 ./tools/build-native.ps1          # cargo build → lib/truehd/marquee_truehd.dll, lib/dovi/marquee_dovi.dll
+dotnet build src/Marquee -p:Platform=x64
+src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
 dotnet build spike/EngineSpike -p:Platform=x64
 spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.exe
 ```
+
+- App test flags: `--page home|movies|shows|sources|settings`, `--open "title"` (detail page of
+  the best search match), `--play "title"` (resumes it, or a show's next episode), `--mute`.
+- Seeing the app without clicking: `PrintWindow(hwnd, …, PW_RENDERFULLCONTENT)` captures the main
+  window from a **DPI-aware** process (a DPI-unaware one gets a virtualized, cropped rect). It
+  doesn't include the mpv overlay window; capture the screen region for that.
+- A running Marquee locks its exe; close it before rebuilding. `dotnet` prints in the Windows
+  display language, so grep build logs for ` error ` rather than English text.
 
 - CLI: `--engine mpv|mf`, `--start SECONDS`, `--mute`, `--fullscreen`, `--exit-after N` (also adds
   a 3-second position heartbeat), `--probe`, `--native-mkv`, `--no-dv`, `--audio-track N`
@@ -271,7 +341,33 @@ the media server's address, audio endpoint names. What the code assumes about an
   Anchor to the actual start after the start is released, and ignore polled positions for about a
   second.
 - libmpv's defaults differ from mpv.exe: no config, OSC or input bindings unless they're set before
-  `mpv_initialize`.
+  `mpv_initialize`. mpv.conf loads *during* `mpv_initialize`, so the app sets its own settings as
+  properties afterwards to win over it.
+- A transparent WinUI window needs two things: a `SystemBackdrop` that sets a transparent
+  `Windows.UI.Composition` colour brush, **and** `DwmExtendFrameIntoClientArea(-1)`. The backdrop
+  alone leaves the window opaque black; `WS_EX_LAYERED` doesn't help. Transparent areas then pass
+  the mouse through, so `PlayerView` polls the cursor (`GetCursorPos` + `WindowFromPoint` →
+  `GetAncestor(GA_ROOT)`) to show the controls; `WindowFromPoint` returns the XAML island's child
+  window, not the top-level one.
+- mpv's video window belongs to mpv's thread: `ShowCursor` from the UI thread doesn't hide the cursor
+  over it; set mpv's `cursor-autohide` too.
+- WinUI 3's XAML compiler doesn't support `x:ClassModifier`; XAML classes are public. A record used
+  as `x:DataType` gets a generated parameterless activator, so `required` members break the build.
+- CommunityToolkit.Mvvm 8.4's partial-property `[ObservableProperty]` needs a preview C# version on
+  .NET 9; the view model uses the field form.
+- `ItemsRepeater` children honour `Canvas.ZIndex`, which is how a hovered card lifts above its
+  neighbours. A standard `Button` template clips and paints on hover; cards use `CardButtonStyle`.
+- Image backdrops fading into the page need a few percent of fully opaque gradient at the edge:
+  at 125 % scale the last pixel row otherwise peeks out while scrolling.
+- KeyboardAccelerators on a root element show "Ctrl+F"-style tooltips everywhere; set
+  `KeyboardAcceleratorPlacementMode="Hidden"`.
+- PowerShell unrolls a `byte[]` returned from a function into the pipeline; return `, $bytes`.
+- Plex: full metadata JSON has keys differing only in case (`guid` and `Guid`), which PowerShell's
+  `ConvertFrom-Json` rejects without `-AsHashtable`. `audienceRating` is Rotten Tomatoes' audience
+  score out of 10. Audio streams flag Atmos in `profile` ("dolby truehd + dolby atmos") and
+  `displayTitle`; video streams carry `DOVIPresent`/`DOVIProfile` and `colorTrc`.
+- TMDB has no keyless access. The user supplies a key in Settings → Library (an API key goes in
+  `api_key=`, a read access token as a bearer token).
 
 ## Conventions
 

@@ -1,7 +1,3 @@
-using EngineSpike.Interop;
-using EngineSpike.Matroska;
-using EngineSpike.MediaFoundation;
-using EngineSpike.Mpv;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -33,7 +29,7 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _exitTimer;
     private DispatcherQueueTimer? _heartbeatTimer;
     private DispatcherQueueTimer? _atmosClockTimer;
-    private SpatialAudio.AtmosPlayback? _atmos;
+    private AtmosPlayback? _atmos;
     private MediaPlaybackItem? _mfItem;
     private MediaSource? _mfSource;
     private DeviceInformation? _mfAudioDevice;
@@ -316,7 +312,7 @@ public sealed partial class MainWindow : Window
 
     private void StartAtmos(string path, MatroskaMediaSource mkv, int track)
     {
-        _atmos = new SpatialAudio.AtmosPlayback(path, track, new SpatialAudio.TrueHdAtmosDecoder());
+        _atmos = new AtmosPlayback(path, track, new TrueHdAtmosDecoder());
         _atmos.Output.Muted = _options.Mute;
         _atmos.Failed += message => _log.Line($"Atmos: {message}");
         _atmos.Trace += message => _log.Line($"Atmos: {message}");
@@ -331,7 +327,7 @@ public sealed partial class MainWindow : Window
         _log.Line($"Atmos: TrueHD track #{track} → truehd decoder → Windows Spatial Sound ([ / ] shift lip-sync)");
     }
 
-    private string AtmosStatus(SpatialAudio.AtmosPlayback atmos)
+    private string AtmosStatus(AtmosPlayback atmos)
     {
         var output = atmos.Output;
         return $"Atmos: sync {output.SyncErrorMs:F1} ms, rate {output.Ratio:0.00000}, offset {output.OffsetMs} ms, " +

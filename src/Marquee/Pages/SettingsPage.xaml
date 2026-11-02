@@ -1,0 +1,178 @@
+<Page
+    x:Class="Marquee.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Marquee.Controls">
+
+    <ScrollViewer>
+        <StackPanel Padding="40,32,40,48" Spacing="24" MaxWidth="1040" HorizontalAlignment="Left">
+            <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Settings" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}" />
+                    <FontIcon Glyph="&#xE76C;" FontSize="10" Foreground="{StaticResource TextTertiaryBrush}" />
+                    <TextBlock x:Name="Crumb" Text="Playback" FontSize="13" />
+                </StackPanel>
+                <TextBlock x:Name="SectionTitle" Text="Playback" Style="{StaticResource PageTitleTextStyle}" />
+            </StackPanel>
+
+            <SelectorBar x:Name="Tabs" SelectionChanged="Tabs_SelectionChanged">
+                <SelectorBarItem Text="Appearance" Tag="appearance" />
+                <SelectorBarItem Text="Playback" Tag="playback" IsSelected="True" />
+                <SelectorBarItem Text="Subtitles" Tag="subtitles" />
+                <SelectorBarItem Text="Library" Tag="library" />
+                <SelectorBarItem Text="Shortcuts" Tag="shortcuts" />
+                <SelectorBarItem Text="About" Tag="about" />
+            </SelectorBar>
+
+            <!-- Appearance -->
+            <StackPanel x:Name="AppearancePanel" Spacing="8" Visibility="Collapsed">
+                <controls:SettingsCard Glyph="&#xE790;" Header="Accent colour" Description="Used for the play button, progress, selection and highlights.">
+                    <StackPanel x:Name="AccentSwatches" Orientation="Horizontal" Spacing="10" />
+                </controls:SettingsCard>
+            </StackPanel>
+
+            <!-- Playback -->
+            <StackPanel x:Name="PlaybackPanel" Spacing="8">
+                <TextBlock Text="Video" Style="{StaticResource GroupTitleTextStyle}" Margin="0,0,0,4" />
+                <controls:SettingsCard Glyph="&#xE7F4;" Header="Playback engine"
+                                       Description="Automatic uses Media Foundation when it adds something: real Dolby Vision, Atmos objects or DTS:X. Everything else, and anything with subtitles, plays through mpv.">
+                    <ComboBox x:Name="EngineBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Automatic" Tag="Automatic" />
+                        <ComboBoxItem Content="Always mpv" Tag="Mpv" />
+                        <ComboBoxItem Content="Always Media Foundation" Tag="MediaFoundation" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE706;" Header="Real Dolby Vision"
+                                       Description="Sends Dolby Vision to the display through Windows' Dolby Vision Extensions (profiles 5 and 8; profile 7 is converted to 8.1). Off, or with mpv, Dolby Vision is tone-mapped to HDR10.">
+                    <ToggleSwitch x:Name="DolbyVisionSwitch" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE950;" Header="Hardware decoding (mpv)" Description="Uses the GPU for HEVC, AV1, VP9 and H.264, falling back to software when a profile isn't supported.">
+                    <ComboBox x:Name="HwdecBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Automatic" Tag="auto-safe" />
+                        <ComboBoxItem Content="D3D11VA" Tag="d3d11va" />
+                        <ComboBoxItem Content="NVDEC" Tag="nvdec" />
+                        <ComboBoxItem Content="Off (software)" Tag="no" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE793;" Header="HDR tone mapping (mpv)" Description="How mpv maps HDR highlights to your display's peak brightness.">
+                    <ComboBox x:Name="ToneMapBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Automatic" Tag="auto" />
+                        <ComboBoxItem Content="BT.2390" Tag="bt.2390" />
+                        <ComboBoxItem Content="Spline" Tag="spline" />
+                        <ComboBoxItem Content="BT.2446a" Tag="bt.2446a" />
+                        <ComboBoxItem Content="ST 2094-40" Tag="st2094-40" />
+                        <ComboBoxItem Content="Clip" Tag="clip" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE943;" Header="Use mpv.conf" Description="Also load %APPDATA%\mpv\mpv.conf (target-peak, shaders and so on). Marquee's own settings above take precedence.">
+                    <ToggleSwitch x:Name="MpvConfigSwitch" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+
+                <TextBlock Text="Audio" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
+                <controls:SettingsCard Glyph="&#xE767;" Header="Output device" Description="Follows the Windows default unless you pick one. Chosen by name, so it survives Windows re-enumerating devices.">
+                    <ComboBox x:Name="DeviceBox" Style="{StaticResource SettingsComboBoxStyle}" MaxWidth="320" SelectionChanged="Setting_Changed" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE7F5;" Header="TrueHD Atmos as objects"
+                                       Description="Decodes TrueHD's Atmos object layer and renders each object through Windows Spatial Sound, for real height with Dolby Atmos for Headphones. Off, TrueHD plays as its 7.1 bed.">
+                    <ToggleSwitch x:Name="ObjectsSwitch" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE916;" Header="Atmos lip-sync" Description="Default audio offset for TrueHD Atmos objects, in milliseconds. [ and ] adjust it during playback.">
+                    <NumberBox x:Name="LipSyncBox" SpinButtonPlacementMode="Inline" SmallChange="10" LargeChange="50" MinWidth="160" ValueChanged="LipSync_ValueChanged" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE9E9;" Header="Exclusive mode (mpv)" Description="Takes the device exclusively, bypassing the Windows mixer. Also bypasses spatial sound.">
+                    <ToggleSwitch x:Name="ExclusiveSwitch" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+
+                <TextBlock Text="Behavior" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
+                <controls:SettingsCard Glyph="&#xE893;" Header="Play next episode automatically" Description="Counts down over the final credits.">
+                    <ComboBox x:Name="AutoNextBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Off" Tag="0" />
+                        <ComboBoxItem Content="After 5 seconds" Tag="5" />
+                        <ComboBoxItem Content="After 10 seconds" Tag="10" />
+                        <ComboBoxItem Content="After 20 seconds" Tag="20" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE72C;" Header="Resume where you left off" Description="Progress syncs with Plex for Plex items and is kept on this PC for files.">
+                    <ComboBox x:Name="ResumeBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Always resume" Tag="Always" />
+                        <ComboBoxItem Content="Start from the beginning" Tag="Never" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xEE49;" Header="Picture in picture when the window loses focus" Description="Keeps playback in a small always-on-top window while you work.">
+                    <ToggleSwitch x:Name="CompactSwitch" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+            </StackPanel>
+
+            <!-- Subtitles -->
+            <StackPanel x:Name="SubtitlesPanel" Spacing="8" Visibility="Collapsed">
+                <controls:SettingsCard Glyph="&#xED1E;" Header="Subtitles" Description="Forced only shows the signs-and-foreign-dialogue track for the audio's language.">
+                    <ComboBox x:Name="SubtitleModeBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Off" Tag="Off" />
+                        <ComboBoxItem Content="Forced only" Tag="ForcedOnly" />
+                        <ComboBoxItem Content="Always" Tag="Always" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE8C1;" Header="Preferred subtitle language" Description="Used when subtitles are always on.">
+                    <ComboBox x:Name="SubtitleLanguageBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE8D6;" Header="Preferred audio language" Description="Picks this language's best track (Atmos, then lossless, then the most channels). Original follows the file's default track.">
+                    <ComboBox x:Name="AudioLanguageBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed" />
+                </controls:SettingsCard>
+                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource TextTertiaryBrush}" TextWrapping="Wrap" MaxWidth="720" HorizontalAlignment="Left"
+                           Text="Media Foundation can't show subtitles yet, so turning them on routes playback through mpv (Dolby Vision is then shown as HDR10)." />
+            </StackPanel>
+
+            <!-- Library -->
+            <StackPanel x:Name="LibraryPanel" Spacing="8" Visibility="Collapsed">
+                <controls:SettingsCard Glyph="&#xE895;" Header="Sync now" x:Name="SyncCard" Description="Plex and folders sync at startup and every 30 minutes.">
+                    <Button Content="Sync now" Click="SyncNow_Click" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE774;" Header="TMDB API key"
+                                       Description="Matches local files with The Movie Database for posters, backdrops, cast and episode titles. Create a free key at themoviedb.org → Settings → API (the API key or the read access token both work).">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PasswordBox x:Name="TmdbKeyBox" Width="260" PlaceholderText="Paste your key" />
+                        <Button Content="Save" Click="SaveTmdbKey_Click" Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xF2B7;" Header="Metadata language" Description="Titles, overviews and artwork language for TMDB matches.">
+                    <ComboBox x:Name="MetadataLanguageBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE8B7;" Header="Library database" x:Name="DatabaseCard">
+                    <Button Content="Open folder" Click="OpenDataFolder_Click" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xEB9F;" Header="Artwork cache" x:Name="CacheCard">
+                    <Button Content="Clear" Click="ClearCache_Click" />
+                </controls:SettingsCard>
+            </StackPanel>
+
+            <!-- Shortcuts -->
+            <StackPanel x:Name="ShortcutsPanel" Spacing="8" Visibility="Collapsed">
+                <Border Style="{StaticResource SurfaceCardStyle}" CornerRadius="6" Padding="20,12">
+                    <Grid x:Name="ShortcutGrid" ColumnSpacing="24" RowSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- About -->
+            <StackPanel x:Name="AboutPanel" Spacing="8" Visibility="Collapsed">
+                <Border Style="{StaticResource SurfaceCardStyle}" CornerRadius="6" Padding="20">
+                    <StackPanel Orientation="Horizontal" Spacing="20">
+                        <Image Source="ms-appx:///Assets/AppIcon.png" Width="72" Height="72" />
+                        <StackPanel VerticalAlignment="Center" Spacing="4">
+                            <TextBlock Text="Marquee" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <TextBlock x:Name="VersionText" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource TextTertiaryBrush}" />
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource TextTertiaryBrush}" TextWrapping="Wrap" MaxWidth="560"
+                                       Text="A Windows player for Plex and local files. Plays through libmpv and Windows Media Foundation; decodes TrueHD Atmos objects with the truehd crate; converts Dolby Vision profile 7 with dovi_tool's dolby_vision crate." />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="Windows components" Style="{StaticResource GroupTitleTextStyle}" Margin="0,12,0,4" />
+                <StackPanel x:Name="ComponentList" Spacing="4" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

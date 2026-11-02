@@ -1,0 +1,160 @@
+<Page
+    x:Class="Marquee.Pages.MovieDetailPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:img="using:Marquee.Imaging">
+
+    <ScrollViewer x:Name="Scroller">
+        <Grid>
+            <Grid x:Name="BackdropBand" Height="460" VerticalAlignment="Top">
+                <Image x:Name="BackdropImage" Stretch="UniformToFill" VerticalAlignment="Top" img:Img.Width="1920" img:Img.Height="1080" />
+                <Rectangle>
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Offset="0" Color="#FF121316" />
+                            <GradientStop Offset="0.05" Color="#FF121316" />
+                            <GradientStop Offset="0.45" Color="#99121316" />
+                            <GradientStop Offset="1" Color="#1A121316" />
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                <Rectangle>
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Offset="0" Color="#99121316" />
+                            <GradientStop Offset="0.6" Color="#00121316" />
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+            </Grid>
+
+            <StackPanel x:Name="Body" Padding="40,240,40,48" Spacing="36">
+                <Grid x:Name="TitleSection" ColumnSpacing="32">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid x:Name="PosterFrame" Width="220" Height="330" CornerRadius="8" VerticalAlignment="Bottom" Translation="0,0,32">
+                        <TextBlock x:Name="PosterTitle" Margin="16" VerticalAlignment="Bottom" FontSize="22" FontWeight="SemiBold" TextWrapping="WrapWholeWords" />
+                        <Image x:Name="PosterImage" Stretch="UniformToFill" img:Img.Width="440" img:Img.Height="660" />
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Spacing="14" Padding="0,0,0,4">
+                        <Image x:Name="LogoImage" MaxHeight="130" MaxWidth="520" HorizontalAlignment="Left" Stretch="Uniform"
+                               img:Img.Width="1000" img:Img.Height="390" />
+                        <TextBlock x:Name="TitleText" Style="{StaticResource HeroTitleTextStyle}" />
+                        <TextBlock x:Name="TaglineText" FontSize="15" FontStyle="Italic" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                        <StackPanel x:Name="MetaRow" Orientation="Horizontal" Spacing="10" />
+                        <StackPanel x:Name="BadgeRow" Orientation="Horizontal" Spacing="6" />
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
+                            <Button x:Name="PlayButton" Style="{StaticResource HeroPrimaryButtonStyle}" Click="Play_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xF5B0;" FontSize="14" />
+                                    <TextBlock x:Name="PlayText" Text="Play" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="RestartButton" Style="{StaticResource HeroButtonStyle}" Content="Play from start" Click="Restart_Click" />
+                            <Button x:Name="WatchedButton" Style="{StaticResource HeroIconButtonStyle}" Click="Watched_Click">
+                                <FontIcon x:Name="WatchedIcon" Glyph="&#xE73E;" FontSize="16" />
+                            </Button>
+                            <Button Style="{StaticResource HeroIconButtonStyle}" AutomationProperties.Name="More options" ToolTipService.ToolTip="More options">
+                                <FontIcon Glyph="&#xE712;" FontSize="16" />
+                                <Button.Flyout>
+                                    <MenuFlyout x:Name="MoreMenu" Placement="BottomEdgeAlignedLeft">
+                                        <MenuFlyoutItem Text="Play with mpv" Click="PlayMpv_Click">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem Text="Play with Media Foundation" Click="PlayMf_Click">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Refresh metadata" Click="Refresh_Click">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="MatchMenuItem" Text="Edit match…" Click="EditMatch_Click">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE774;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="OpenFolderItem" Text="Show in File Explorer" Click="OpenFolder_Click">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <RatingControl x:Name="UserRatingControl" IsClearEnabled="True" VerticalAlignment="Center" Margin="6,0,0,0"
+                                           ValueChanged="UserRating_ValueChanged" AutomationProperties.Name="Your rating" ToolTipService.ToolTip="Your rating" />
+                            <StackPanel x:Name="ProgressRow" Orientation="Horizontal" Spacing="10" Margin="6,0,0,0" VerticalAlignment="Center">
+                                <ProgressBar x:Name="WatchProgress" Width="140" Maximum="1" VerticalAlignment="Center" />
+                                <TextBlock x:Name="ProgressText" FontSize="12" Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="Columns" ColumnSpacing="40" RowSpacing="32">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition x:Name="AsideColumn" Width="380" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Spacing="32">
+                        <StackPanel x:Name="OverviewSection" Spacing="10">
+                            <TextBlock Text="Overview" Style="{StaticResource GroupTitleTextStyle}" />
+                            <TextBlock x:Name="SummaryText" FontSize="15" LineHeight="24" Foreground="{StaticResource TextBodyBrush}" TextWrapping="Wrap" MaxWidth="760" HorizontalAlignment="Left" IsTextSelectionEnabled="True" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="CastSection" Spacing="14">
+                            <Grid>
+                                <TextBlock Text="Cast &amp; crew" Style="{StaticResource GroupTitleTextStyle}" />
+                                <TextBlock x:Name="CastCount" Style="{StaticResource MetaTextStyle}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <ItemsRepeater x:Name="CastRepeater">
+                                <ItemsRepeater.Layout>
+                                    <UniformGridLayout MinItemWidth="104" MinItemHeight="150" MinColumnSpacing="16" MinRowSpacing="12" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </StackPanel>
+
+                        <StackPanel x:Name="VersionsSection" Spacing="12">
+                            <TextBlock Text="Versions" Style="{StaticResource GroupTitleTextStyle}" />
+                            <Border Style="{StaticResource SurfaceCardStyle}">
+                                <StackPanel x:Name="VersionList" />
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border x:Name="Aside" Grid.Column="1" Style="{StaticResource SurfaceCardStyle}" Padding="20" VerticalAlignment="Top">
+                        <StackPanel Spacing="16">
+                            <TextBlock Text="Details" Style="{StaticResource GroupTitleTextStyle}" />
+                            <Grid x:Name="DetailsGrid" ColumnSpacing="16" RowSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                            </Grid>
+                            <Rectangle Height="1" Fill="{StaticResource DividerBrush}" />
+                            <TextBlock Text="Playback defaults for this title" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                            <Grid ColumnSpacing="12" RowSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Audio" FontSize="13" VerticalAlignment="Center" />
+                                <ComboBox x:Name="AudioBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="TrackBox_SelectionChanged" AutomationProperties.Name="Audio track" />
+                                <TextBlock Grid.Row="1" Text="Subtitles" FontSize="13" VerticalAlignment="Center" />
+                                <ComboBox x:Name="SubtitleBox" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="TrackBox_SelectionChanged" AutomationProperties.Name="Subtitle track" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>

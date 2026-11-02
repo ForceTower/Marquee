@@ -19,15 +19,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.4" />
-    <!-- Must match the FFmpeg branch that tools/fetch-ffmpeg.ps1 downloads. -->
-    <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\lib\libmpv-2.dll" Link="libmpv-2.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\lib\ffmpeg\*.dll" Link="ffmpeg\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\lib\truehd\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\lib\dovi\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\..\src\Marquee.Playback\Marquee.Playback.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="samples.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

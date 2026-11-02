@@ -11,15 +11,37 @@ The plan is two playback engines chosen per file:
   signalling via the Dolby Vision Extension, and DD+ Atmos objects via the system decoder into
   Windows Spatial Sound.
 
+## The app
+
+`src/Marquee` is the player itself: a native WinUI 3 app (Mica, the WinUI title bar and navigation,
+Segoe Fluent icons) with a dark graphite and amber look.
+
+- **Library:** Plex (PIN sign-in, every server and library you can reach) and folders on this PC,
+  merged into one SQLite library on this PC, so browsing is instant. Plex syncs at startup and every
+  30 minutes; watched folders rescan when files change.
+- **Local files** are matched with TMDB, like Infuse: posters, backdrops, logos, cast, ratings and
+  episode titles. TMDB needs a free key from themoviedb.org (Settings → Library); artwork saved next
+  to the files wins. A wrong match can be fixed with "Edit match…".
+- **Screens:** Home (continue watching, recently added, up next), Movies and TV grids, movie and
+  series detail pages, Sources, Settings.
+- **Player:** picks the engine per file. Media Foundation when it adds something mpv can't (real
+  Dolby Vision, Atmos objects, DTS:X), mpv otherwise or when subtitles are on. Plex items play the
+  original file directly over HTTP. Progress and watched state sync back to Plex. It also does
+  resume, skip intro/credits, next-episode countdown, chapters, audio and subtitle choice, picture
+  in picture, frame stepping and lip-sync.
+
+```powershell
+./tools/fetch-libmpv.ps1; ./tools/fetch-ffmpeg.ps1; ./tools/build-native.ps1
+dotnet build src/Marquee -p:Platform=x64
+src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
+```
+
 ## Engine spike
 
 `spike/EngineSpike` is a throwaway WinUI 3 harness that plays a file through either engine in the
 same window and reports what each one negotiated.
 
 ```powershell
-./tools/fetch-libmpv.ps1                       # once: downloads libmpv-2.dll into lib/
-./tools/fetch-ffmpeg.ps1                       # once: FFmpeg 9.0 LGPL libraries into lib/ffmpeg/
-./tools/build-native.ps1                       # once: Rust FFI libraries (TrueHD Atmos, DV profile 7)
 dotnet build spike/EngineSpike -p:Platform=x64
 spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.exe
 ```

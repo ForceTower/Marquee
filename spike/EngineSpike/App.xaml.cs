@@ -20,7 +20,7 @@ public partial class App : Application
             string result;
             try
             {
-                result = Matroska.TrackExtractor.Run(path, track, options.Start ?? TimeSpan.Zero, options.ExtractLength, output);
+                result = TrackExtractor.Run(path, track, options.Start ?? TimeSpan.Zero, options.ExtractLength, output);
             }
             catch (Exception ex)
             {
@@ -37,7 +37,7 @@ public partial class App : Application
             string result;
             try
             {
-                result = Matroska.DolbyVisionProbe.Describe(file);
+                result = DolbyVisionProbe.Describe(file);
             }
             catch (Exception ex)
             {
