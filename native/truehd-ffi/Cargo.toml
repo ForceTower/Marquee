@@ -1,0 +1,17 @@
+[package]
+name = "marquee-truehd"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+description = "C ABI over the truehd crate: TrueHD Atmos (presentation 3) decoding for Marquee"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+truehd = "=0.7.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

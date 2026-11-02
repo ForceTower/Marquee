@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+lib/
+native/**/target/
+
+# Personal: machine/network details and real test file paths
+CLAUDE.local.md
+spike/EngineSpike/samples.txt

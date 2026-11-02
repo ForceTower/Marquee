@@ -1,0 +1,3 @@
+[tools]
+# For native/truehd-ffi (TrueHD Atmos decoding). The truehd crate needs 1.88+, the truehdd CLI 1.95+.
+rust = "1.99.1"

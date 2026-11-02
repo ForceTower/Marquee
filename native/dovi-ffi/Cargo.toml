@@ -1,0 +1,17 @@
+[package]
+name = "marquee-dovi"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "C ABI over dovi_tool's dolby_vision crate: per-frame RPU conversion for Marquee"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dolby_vision = "=3.4.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

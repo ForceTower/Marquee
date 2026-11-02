@@ -1,0 +1,69 @@
+<Window
+    x:Class="EngineSpike.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid x:Name="RootGrid" Background="Black" RequestedTheme="Dark">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="F2" Invoked="Swap_Invoked" />
+            <KeyboardAccelerator Key="F3" Invoked="NextAudio_Invoked" />
+            <KeyboardAccelerator Key="F11" Invoked="ToggleFullScreen_Invoked" />
+            <KeyboardAccelerator Key="Escape" Invoked="ExitFullScreen_Invoked" />
+        </Grid.KeyboardAccelerators>
+
+        <StackPanel x:Name="Toolbar" Grid.Row="0" Padding="8" Spacing="8" Background="#202020">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <ComboBox x:Name="SamplesBox" Width="420" PlaceholderText="Test files (plays in the current engine)"
+                          SelectionChanged="SamplesBox_SelectionChanged"
+                          DropDownOpened="SamplesBox_DropDownOpened"
+                          DropDownClosed="SamplesBox_DropDownClosed" />
+                <TextBox x:Name="PathBox" MinWidth="620" PlaceholderText="File path or http(s) URL" />
+                <Button Content="Browse…" Click="Browse_Click" />
+                <CheckBox x:Name="NativeMkvBox" Content="Use Windows' MKV reader for Media Foundation"
+                          ToolTipService.ToolTip="Off: Marquee's own MKV reader, which keeps Dolby Vision" />
+                <CheckBox x:Name="TrueHdAtmosBox" Content="TrueHD as Atmos objects"
+                          ToolTipService.ToolTip="Decode TrueHD's Atmos layer (truehd) and render its objects through Windows Spatial Sound. [ and ] shift lip-sync by 10 ms." />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="▶ mpv" Click="PlayMpv_Click" Style="{StaticResource AccentButtonStyle}" />
+                <Button Content="▶ Media Foundation" Click="PlayMf_Click" Style="{StaticResource AccentButtonStyle}" />
+                <Button Content="⇄ Swap engine (F2)" Click="Swap_Click" ToolTipService.ToolTip="Same file, same position, same audio language" />
+                <Button Content="♪ Next audio (F3)" Click="NextAudio_Click" />
+                <Button Content="■ Stop" Click="Stop_Click" />
+                <ToggleButton x:Name="FullScreenToggle" Content="Full screen (F11)" Click="FullScreenToggle_Click" />
+                <Button Content="Probe Atmos decoding" Click="ProbeAtmos_Click" />
+                <Button Content="Refresh info" Click="RefreshInfo_Click" />
+                <TextBlock x:Name="NowPlayingText" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="#C8C8C8" />
+            </StackPanel>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="StatusColumn" Width="460" />
+            </Grid.ColumnDefinitions>
+
+            <Grid x:Name="VideoArea" Grid.Column="0" Background="Black">
+                <MediaPlayerElement x:Name="MfElement" AreTransportControlsEnabled="True"
+                                    Stretch="Uniform" Visibility="Collapsed" />
+                <Border x:Name="EngineBadge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24"
+                        Padding="14,8" CornerRadius="6" Background="#B0000000" Visibility="Collapsed">
+                    <TextBlock x:Name="EngineBadgeText" FontSize="20" Foreground="White" />
+                </Border>
+            </Grid>
+
+            <ScrollViewer x:Name="StatusPane" Grid.Column="1" Background="#181818" Padding="10">
+                <StackPanel Spacing="16">
+                    <TextBlock x:Name="InfoText" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"
+                               IsTextSelectionEnabled="True" Foreground="#E6E6E6" />
+                    <TextBlock x:Name="LogText" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"
+                               IsTextSelectionEnabled="True" Foreground="#9A9A9A" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
