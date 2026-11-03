@@ -18,9 +18,16 @@ $dest = Join-Path $env:LOCALAPPDATA 'Programs\Marquee'
 if (-not $NoBuild) {
     Write-Host 'Publishing Release (self-contained, ReadyToRun)...'
     if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
-    dotnet publish "$root\src\Marquee\Marquee.csproj" -c Release -p:Platform=x64 -r win-x64 --self-contained `
-        -p:PublishReadyToRun=true -o $publish -v quiet -nologo
-    if ($LASTEXITCODE) { throw "dotnet publish failed ($LASTEXITCODE)" }
+    # The .NET SDK is pinned in mise.toml, so publish from the repository through mise.
+    Push-Location $root
+    try {
+        mise exec -- dotnet publish "$root\src\Marquee\Marquee.csproj" -c Release -p:Platform=x64 -r win-x64 --self-contained `
+            -p:PublishReadyToRun=true -o $publish -v quiet -nologo
+        if ($LASTEXITCODE) { throw "dotnet publish failed ($LASTEXITCODE)" }
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |

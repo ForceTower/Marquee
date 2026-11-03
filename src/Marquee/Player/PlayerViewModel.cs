@@ -1,50 +1,48 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Marquee.Data;
 
-#pragma warning disable MVVMTK0045 // Field-based [ObservableProperty]; partial properties need a preview C# version on .NET 9.
-
 namespace Marquee.Player;
 
 /// <summary>What the player controls show. Both control surfaces bind to one instance.</summary>
 public sealed partial class PlayerViewModel : ObservableObject
 {
-    [ObservableProperty] private string _title = "";
-    [ObservableProperty] private string _subtitle = "";
-    [ObservableProperty] private IReadOnlyList<string> _badges = [];
-    [ObservableProperty] private string _engineText = "";
+    [ObservableProperty] public partial string Title { get; set; } = "";
+    [ObservableProperty] public partial string Subtitle { get; set; } = "";
+    [ObservableProperty] public partial IReadOnlyList<string> Badges { get; set; } = [];
+    [ObservableProperty] public partial string EngineText { get; set; } = "";
 
-    [ObservableProperty] private double _position;
-    [ObservableProperty] private double _duration = 1;
-    [ObservableProperty] private double _buffered;
-    [ObservableProperty] private string _positionText = "0:00";
-    [ObservableProperty] private string _durationText = "0:00";
-    [ObservableProperty] private string _chapterTitle = "";
+    [ObservableProperty] public partial double Position { get; set; }
+    [ObservableProperty] public partial double Duration { get; set; } = 1;
+    [ObservableProperty] public partial double Buffered { get; set; }
+    [ObservableProperty] public partial string PositionText { get; set; } = "0:00";
+    [ObservableProperty] public partial string DurationText { get; set; } = "0:00";
+    [ObservableProperty] public partial string ChapterTitle { get; set; } = "";
 
-    [ObservableProperty] private bool _isPlaying;
-    [ObservableProperty] private bool _isBuffering = true;
-    [ObservableProperty] private double _volume = 100;
-    [ObservableProperty] private bool _isMuted;
-    [ObservableProperty] private bool _isFullScreen;
-    [ObservableProperty] private bool _isCompact;
-    [ObservableProperty] private bool _controlsVisible = true;
+    [ObservableProperty] public partial bool IsPlaying { get; set; }
+    [ObservableProperty] public partial bool IsBuffering { get; set; } = true;
+    [ObservableProperty] public partial double Volume { get; set; } = 100;
+    [ObservableProperty] public partial bool IsMuted { get; set; }
+    [ObservableProperty] public partial bool IsFullScreen { get; set; }
+    [ObservableProperty] public partial bool IsCompact { get; set; }
+    [ObservableProperty] public partial bool ControlsVisible { get; set; } = true;
 
-    [ObservableProperty] private IReadOnlyList<TrackOption> _audioTracks = [];
-    [ObservableProperty] private IReadOnlyList<TrackOption> _subtitleTracks = [];
-    [ObservableProperty] private int? _selectedAudio;
-    [ObservableProperty] private int? _selectedSubtitle;
-    [ObservableProperty] private bool _canShowSubtitles = true;
-    [ObservableProperty] private IReadOnlyList<Chapter> _chapters = [];
+    [ObservableProperty] public partial IReadOnlyList<TrackOption> AudioTracks { get; set; } = [];
+    [ObservableProperty] public partial IReadOnlyList<TrackOption> SubtitleTracks { get; set; } = [];
+    [ObservableProperty] public partial int? SelectedAudio { get; set; }
+    [ObservableProperty] public partial int? SelectedSubtitle { get; set; }
+    [ObservableProperty] public partial bool CanShowSubtitles { get; set; } = true;
+    [ObservableProperty] public partial IReadOnlyList<Chapter> Chapters { get; set; } = [];
 
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSkip))] private string? _skipLabel;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasUpNext))] private MediaItem? _upNext;
-    [ObservableProperty] private int _upNextSeconds;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSkip))] public partial string? SkipLabel { get; set; }
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasUpNext))] public partial MediaItem? UpNext { get; set; }
+    [ObservableProperty] public partial int UpNextSeconds { get; set; }
 
-    [ObservableProperty] private double _speed = 1;
-    [ObservableProperty] private int _audioDelayMs;
-    [ObservableProperty] private double _subtitleDelay;
-    [ObservableProperty] private string _statistics = "";
-    [ObservableProperty] private bool _showStatistics;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasMessage))] private string? _message;
+    [ObservableProperty] public partial double Speed { get; set; } = 1;
+    [ObservableProperty] public partial int AudioDelayMs { get; set; }
+    [ObservableProperty] public partial double SubtitleDelay { get; set; }
+    [ObservableProperty] public partial string Statistics { get; set; } = "";
+    [ObservableProperty] public partial bool ShowStatistics { get; set; }
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasMessage))] public partial string? Message { get; set; }
 
     // Visibility binds to these rather than to the nullable values: x:Bind doesn't call a binding
     // function whose argument is null, so the element would stay visible after the value clears.

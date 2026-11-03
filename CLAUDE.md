@@ -80,7 +80,6 @@ Next:
 
 1. Matroska chapters in the MKV reader (chapters currently come from Plex or mpv).
 2. Display handling: HDR on/off and refresh-rate matching.
-3. .NET 10 LTS (only the .NET 9 SDK is installed; .NET 9 support ends November 2026).
 
 ## The app (`src/Marquee`)
 
@@ -126,11 +125,11 @@ Next:
 
 ## Tech stack
 
-- C# on .NET 9 (the only SDK installed; it goes out of support in November 2026, so the real app
-  should target .NET 10 LTS). WinUI 3 via Windows App SDK 2.6.4, unpackaged
-  (`WindowsPackageType=None`), self-contained, x64 only.
-- App packages: Microsoft.Data.Sqlite and System.Security.Cryptography.ProtectedData 9.0.22,
-  CommunityToolkit.Mvvm 8.4.2.
+- C# 14 on .NET 10 (LTS). The SDK (10.0.403) is pinned in `mise.toml`, so inside the repo
+  `dotnet` is mise's. The system-wide .NET 9 SDK in Program Files is not used. WinUI 3 via
+  Windows App SDK 2.6.4, unpackaged (`WindowsPackageType=None`), self-contained, x64 only.
+- App packages: Microsoft.Data.Sqlite and System.Security.Cryptography.ProtectedData 10.0.14,
+  CommunityToolkit.Mvvm 8.4.2 (`[ObservableProperty]` on partial properties).
 - **libmpv**: `libmpv-2.dll` from shinchiro's `mpv-dev-x86_64-v3` builds. `tools/fetch-libmpv.ps1`
   downloads it into `lib/` (gitignored), and the csproj copies it to the output. P/Invoke lives in
   `Mpv/LibMpv.cs`.
@@ -327,15 +326,15 @@ The engine code is `internal`; `Marquee.Playback` grants `InternalsVisibleTo` to
 ## Build, run, test
 
 ```powershell
-mise install                      # Rust, plus Python/uv/meson/ninja/nasm for libass (mise.toml)
+mise install                      # .NET SDK, Rust, plus Python/uv/meson/ninja/nasm for libass (mise.toml)
 ./tools/fetch-libmpv.ps1
 ./tools/fetch-ffmpeg.ps1
 ./tools/build-native.ps1          # cargo build → lib/truehd/marquee_truehd.dll, lib/dovi/marquee_dovi.dll
 ./tools/build-libass.ps1          # meson + MSVC → lib/libass/libass.dll
 dotnet build src/Marquee -p:Platform=x64
-src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
+src/Marquee/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/Marquee.exe
 dotnet build spike/EngineSpike -p:Platform=x64
-spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.exe
+spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.exe
 ```
 
 - App test flags: `--page home|movies|shows|sources|settings`, `--open "title"` (detail page of
@@ -455,8 +454,6 @@ the media server's address, audio endpoint names. What the code assumes about an
   after the text cleared. Bind visibilities to bools (`HasMessage`, `HasSkip`, `HasThumb`).
 - WinUI 3's XAML compiler doesn't support `x:ClassModifier`; XAML classes are public. A record used
   as `x:DataType` gets a generated parameterless activator, so `required` members break the build.
-- CommunityToolkit.Mvvm 8.4's partial-property `[ObservableProperty]` needs a preview C# version on
-  .NET 9; the view model uses the field form.
 - `ItemsRepeater` children honour `Canvas.ZIndex`, which is how a hovered card lifts above its
   neighbours. A standard `Button` template clips and paints on hover; cards use `CardButtonStyle`.
 - Image backdrops fading into the page need a few percent of fully opaque gradient at the edge:

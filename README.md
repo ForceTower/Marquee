@@ -33,9 +33,10 @@ Segoe Fluent icons) with a dark graphite and amber look.
   in picture, frame stepping and lip-sync.
 
 ```powershell
+mise install   # the .NET 10 SDK and the native build tools, pinned in mise.toml
 ./tools/fetch-libmpv.ps1; ./tools/fetch-ffmpeg.ps1; ./tools/build-native.ps1; ./tools/build-libass.ps1
 dotnet build src/Marquee -p:Platform=x64
-src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
+src/Marquee/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/Marquee.exe
 ```
 
 ### Installing
@@ -62,7 +63,7 @@ same window and reports what each one negotiated.
 
 ```powershell
 dotnet build spike/EngineSpike -p:Platform=x64
-spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.exe
+spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.exe
 ```
 
 Command line: `EngineSpike.exe [--engine mpv|mf] [--start SECONDS] [--probe] [--mute]
