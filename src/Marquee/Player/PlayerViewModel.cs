@@ -35,8 +35,8 @@ public sealed partial class PlayerViewModel : ObservableObject
     [ObservableProperty] private bool _canShowSubtitles = true;
     [ObservableProperty] private IReadOnlyList<Chapter> _chapters = [];
 
-    [ObservableProperty] private string? _skipLabel;
-    [ObservableProperty] private MediaItem? _upNext;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSkip))] private string? _skipLabel;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasUpNext))] private MediaItem? _upNext;
     [ObservableProperty] private int _upNextSeconds;
 
     [ObservableProperty] private double _speed = 1;
@@ -44,7 +44,13 @@ public sealed partial class PlayerViewModel : ObservableObject
     [ObservableProperty] private double _subtitleDelay;
     [ObservableProperty] private string _statistics = "";
     [ObservableProperty] private bool _showStatistics;
-    [ObservableProperty] private string? _message;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasMessage))] private string? _message;
+
+    // Visibility binds to these rather than to the nullable values: x:Bind doesn't call a binding
+    // function whose argument is null, so the element would stay visible after the value clears.
+    public bool HasSkip => !string.IsNullOrEmpty(SkipLabel);
+    public bool HasUpNext => UpNext is not null;
+    public bool HasMessage => !string.IsNullOrEmpty(Message);
 }
 
 /// <summary>What the control surfaces can ask the player to do.</summary>

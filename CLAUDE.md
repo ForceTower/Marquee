@@ -367,6 +367,16 @@ the media server's address, audio endpoint names. What the code assumes about an
   the profile and reading the setting work as a normal user, but `NvAPI_DRS_SetSetting` returns
   `NVAPI_INVALID_USER_PRIVILEGE` (-137) without admin. That's why `Player/NvidiaOverlay` runs
   `Marquee.exe --nvidia-overlay-off` elevated from the Settings card.
+- Media Foundation's clock follows its audio renderer. An output that accepts samples but never
+  plays them freezes the picture at 0:00 while the player still reports Playing, at idle CPU. One
+  example is an S/PDIF port with nothing attached, which Windows makes the default when a headset
+  switches off. `PlayerView.WatchAudio` spots a clock that's stuck for 3 s and reopens video-only
+  (`PlaybackRequest.WithoutSound`). It retries sound when Windows' default output changes or a
+  track is picked. mpv drops the audio track itself (`aid=no`) and keeps playing; Marquee only
+  says so.
+- x:Bind doesn't call a binding function whose argument is null; the target keeps its old value.
+  `Visibility="{x:Bind Bind.VisText(ViewModel.Message)}"` left an empty message box on screen
+  after the text cleared. Bind visibilities to bools (`HasMessage`, `HasSkip`, `HasThumb`).
 - WinUI 3's XAML compiler doesn't support `x:ClassModifier`; XAML classes are public. A record used
   as `x:DataType` gets a generated parameterless activator, so `required` members break the build.
 - CommunityToolkit.Mvvm 8.4's partial-property `[ObservableProperty]` needs a preview C# version on

@@ -50,7 +50,7 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Border Width="96" Height="54" CornerRadius="4" Background="#24272C"
-                            Visibility="{x:Bind local:Bind.VisText(Thumb)}">
+                            Visibility="{x:Bind local:Bind.Vis(HasThumb)}">
                         <Image Stretch="UniformToFill" img:Img.Width="192" img:Img.Height="108" img:Img.Source="{x:Bind Thumb}" />
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -101,7 +101,7 @@
             <Button x:Name="SkipButton" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,150"
                     Height="44" Padding="20,0" CornerRadius="6" Background="#D924272C" BorderBrush="#33FFFFFF" BorderThickness="1"
                     Content="{x:Bind ViewModel.SkipLabel, Mode=OneWay}" FontWeight="SemiBold"
-                    Visibility="{x:Bind local:Bind.VisText(ViewModel.SkipLabel), Mode=OneWay}" Click="Skip_Click" />
+                    Visibility="{x:Bind local:Bind.Vis(ViewModel.HasSkip), Mode=OneWay}" Click="Skip_Click" />
 
             <!-- Bottom bar -->
             <StackPanel x:Name="BottomBar" VerticalAlignment="Bottom" Padding="24,64,24,20" Spacing="10">
@@ -239,7 +239,7 @@
             <!-- Up next -->
             <Border x:Name="UpNextCard" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,150" Width="360" Padding="16"
                     CornerRadius="8" Background="#F024272C" BorderBrush="#1FFFFFFF" BorderThickness="1"
-                    Visibility="{x:Bind local:Bind.VisItem(ViewModel.UpNext), Mode=OneWay}">
+                    Visibility="{x:Bind local:Bind.Vis(ViewModel.HasUpNext), Mode=OneWay}">
                 <StackPanel Spacing="10">
                     <TextBlock Text="{x:Bind local:Bind.UpNextHeader(ViewModel.UpNextSeconds), Mode=OneWay}" FontSize="11" FontWeight="SemiBold" CharacterSpacing="60" Foreground="#A9AFB8" />
                     <TextBlock Text="{x:Bind local:Bind.UpNextTitle(ViewModel.UpNext), Mode=OneWay}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -259,7 +259,7 @@
 
         <!-- Messages ("Subtitles play through mpv…") -->
         <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,80,0,0" Padding="16,10" CornerRadius="6" Background="#E624272C"
-                Visibility="{x:Bind local:Bind.VisText(ViewModel.Message), Mode=OneWay}" IsHitTestVisible="False" MaxWidth="640">
+                Visibility="{x:Bind local:Bind.Vis(ViewModel.HasMessage), Mode=OneWay}" IsHitTestVisible="False" MaxWidth="640">
             <TextBlock Text="{x:Bind ViewModel.Message, Mode=OneWay}" FontSize="13" TextWrapping="Wrap" />
         </Border>
     </Grid>

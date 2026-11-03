@@ -91,7 +91,10 @@ public sealed record MediaVersion(
 
 public sealed record Person(string Name, string? Role, string? Photo);
 
-public sealed record Chapter(long StartMs, long EndMs, string? Title, string? Thumb);
+public sealed record Chapter(long StartMs, long EndMs, string? Title, string? Thumb)
+{
+    public bool HasThumb => !string.IsNullOrEmpty(Thumb);
+}
 
 public sealed record Marker(string Type, long StartMs, long EndMs);
 

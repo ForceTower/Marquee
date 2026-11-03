@@ -67,7 +67,7 @@ internal sealed class MatroskaMediaSource
     private readonly HashSet<int> _splitLaces = new();
     private readonly Dictionary<int, Queue<(long Ticks, long Duration, byte[] Data)>> _pendingFrames = new();
 
-    private MatroskaMediaSource(string path, bool requestDolbyVision, bool windowsDts, int? externalAudioTrack)
+    private MatroskaMediaSource(string path, bool requestDolbyVision, bool windowsDts, int? externalAudioTrack, bool audio)
     {
         _requestDolbyVision = requestDolbyVision;
         _windowsDts = windowsDts;
@@ -87,8 +87,12 @@ internal sealed class MatroskaMediaSource
         {
             Description.Add($"audio #{external} → played by Marquee outside Media Foundation (video-only source)");
         }
+        else if (!audio)
+        {
+            Description.Add("audio left out (video-only source)");
+        }
 
-        foreach (var track in _demuxer.Tracks.Where(t => t.Kind == TrackKind.Audio && externalAudioTrack is null))
+        foreach (var track in _demuxer.Tracks.Where(t => t.Kind == TrackKind.Audio && externalAudioTrack is null && audio))
         {
             string label = track.Name ?? $"{track.CodecId[2..]} {track.Channels}ch";
             AudioEncodingProperties? properties = AudioProperties(track);
@@ -144,8 +148,9 @@ internal sealed class MatroskaMediaSource
     /// Give Media Foundation video only and keep this audio track's packets in the demuxer for a
     /// player outside Media Foundation (see <see cref="Demuxer"/> and <see cref="Seeked"/>).
     /// </param>
-    public static MatroskaMediaSource Open(string path, bool requestDolbyVision = true, bool windowsDts = false, int? externalAudioTrack = null) =>
-        new(path, requestDolbyVision, windowsDts, externalAudioTrack);
+    /// <param name="audio">False gives Media Foundation video only, with no audio at all.</param>
+    public static MatroskaMediaSource Open(string path, bool requestDolbyVision = true, bool windowsDts = false, int? externalAudioTrack = null, bool audio = true) =>
+        new(path, requestDolbyVision, windowsDts, externalAudioTrack, audio);
 
     public static bool Handles(string location) => IO.MediaFile.Extension(location) is ".mkv" or ".mk3d";
 

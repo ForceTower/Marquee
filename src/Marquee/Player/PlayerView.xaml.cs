@@ -8,7 +8,9 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Windows.Devices.Enumeration;
 using Windows.Graphics;
+using Windows.Media.Devices;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 using VirtualKey = Windows.System.VirtualKey;
@@ -140,6 +142,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             App.Window.SetTitleBar(PlayerTitleBar);
             App.Window.AppWindow.Changed += OnAppWindowChanged;
             App.Window.Activated += OnWindowActivated;
+            MediaDevice.DefaultAudioRenderDeviceChanged += OnDefaultAudioChanged;
             _vm.IsFullScreen = false;
             _vm.IsCompact = false;
             _vm.ShowStatistics = false;
@@ -149,7 +152,15 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         }
 
         Root.Focus(FocusState.Programmatic);
-        await OpenEngineAsync(plan.Engine, plan.Request);
+        var request = plan.Request;
+        _mpvNoSound = false;
+        if (plan.Engine == EngineMode.MediaFoundation && await AudioOutputNameAsync() is null)
+        {
+            request = request with { WithoutSound = true };
+            ShowMessage("No audio output, so this plays without sound.");
+        }
+
+        await OpenEngineAsync(plan.Engine, request);
         if (plan.Note is { } note)
         {
             ShowMessage(note);
@@ -311,6 +322,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         ReportProgress(position, duration, force: false);
         DetectPointerMovement();
         AutoHide();
+        WatchAudio(engine);
 
         if (_vm.ShowStatistics && _ticks % 20 == 0)
         {
@@ -445,6 +457,137 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         else
         {
             Close();
+        }
+    }
+
+    // ---- audio output ----
+
+    private long _stuckSince;
+    private TimeSpan _stuckAt;
+    private bool _mpvNoSound;
+    private long _mpvSoundChangeSince;
+
+    /// <summary>
+    /// Media Foundation's clock follows its audio renderer. An output that takes the samples but never
+    /// plays them (an S/PDIF port with nothing on it, which Windows makes the default when a headset
+    /// switches off) freezes the picture while the engine still says it's playing. Spot that and play
+    /// on without sound. mpv plays on by itself when it loses its device; this only tells the user.
+    /// </summary>
+    private void WatchAudio(IPlayerEngine engine)
+    {
+        long now = Environment.TickCount64;
+        bool settled = engine.IsPlaying && !engine.IsBuffering && !_opening && _pendingSeek is null;
+        if (engine == _mpv && settled)
+        {
+            bool noSound = engine.PlaysWithoutSound;
+            if (noSound == _mpvNoSound)
+            {
+                _mpvSoundChangeSince = 0;
+            }
+            else if (_mpvSoundChangeSince == 0)
+            {
+                _mpvSoundChangeSince = now;
+            }
+            else if (now - _mpvSoundChangeSince > 1500)
+            {
+                _mpvNoSound = noSound;
+                _mpvSoundChangeSince = 0;
+                ShowMessage(noSound ? "No audio output, so this plays without sound." : "Sound is back.");
+            }
+        }
+
+        if (engine != _mf || engine.PlaysWithoutSound || !settled || engine.Position != _stuckAt)
+        {
+            _stuckAt = engine.Position;
+            _stuckSince = now;
+        }
+        else if (now - _stuckSince > 3000)
+        {
+            _stuckSince = long.MaxValue;
+            PlayWithoutSound();
+        }
+    }
+
+    private async void PlayWithoutSound()
+    {
+        try
+        {
+            string device = await AudioOutputNameAsync() ?? "the audio output";
+            Log.Info($"Media Foundation's clock is stuck at {_engine?.Position} with {device}; playing without sound");
+            ShowMessage($"No sound from {device}, so this plays without it. Turn on or pick another audio output to get it back.");
+            await ReopenAsync(withoutSound: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Playing without sound", ex);
+        }
+    }
+
+    private void OnDefaultAudioChanged(object sender, DefaultAudioRenderDeviceChangedEventArgs args)
+    {
+        if (args.Role == AudioDeviceRole.Default)
+        {
+            DispatcherQueue.TryEnqueue(RestoreSound);
+        }
+    }
+
+    /// <summary>A new default audio output: give it a try if playback lost its sound.</summary>
+    private async void RestoreSound()
+    {
+        try
+        {
+            if (!_open || _engine is not { } engine || await AudioOutputNameAsync() is not { } device)
+            {
+                return;
+            }
+
+            if (engine == _mpv && _mpvNoSound)
+            {
+                Log.Info($"Audio output changed to {device}; mpv tries sound again");
+                await _mpv.RetryAudioAsync(_request?.Audio);
+            }
+            else if (engine == _mf && engine.PlaysWithoutSound)
+            {
+                Log.Info($"Audio output changed to {device}; trying sound again");
+                ShowMessage($"Sound is back on {device}.");
+                await ReopenAsync(withoutSound: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Restoring sound", ex);
+        }
+    }
+
+    private async Task ReopenAsync(bool withoutSound)
+    {
+        if (_engine is { } engine && _request is { } request)
+        {
+            await OpenEngineAsync(engine.Kind, request with { Start = engine.Position, WithoutSound = withoutSound });
+        }
+    }
+
+    /// <summary>The output Media Foundation plays on: the one picked in Settings, else Windows' default.</summary>
+    private async Task<string?> AudioOutputNameAsync()
+    {
+        if (_settings.AudioDevice is { Length: > 0 } chosen)
+        {
+            return chosen;
+        }
+
+        string? id = MediaDevice.GetDefaultAudioRenderId(AudioDeviceRole.Default);
+        if (string.IsNullOrEmpty(id))
+        {
+            return null;
+        }
+
+        try
+        {
+            return (await DeviceInformation.CreateFromIdAsync(id)).Name;
+        }
+        catch (Exception ex) when (ex is COMException or ArgumentException)
+        {
+            return null;
         }
     }
 
@@ -740,7 +883,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         }
 
         await engine.SelectAudioAsync(ordinal);
-        _request = _request with { Audio = ordinal, PlayTrueHdAsObjects = _settings.TrueHdAtmosObjects && engine.AudioTracks.ElementAtOrDefault(ordinal)?.IsAtmos == true };
+        _request = _request with { Audio = ordinal, WithoutSound = false, PlayTrueHdAsObjects = _settings.TrueHdAtmosObjects && engine.AudioTracks.ElementAtOrDefault(ordinal)?.IsAtmos == true };
         var prefs = TrackPreferences.Load(_request.Item.Id);
         (prefs with { Audio = ordinal }).Save(_request.Item.Id);
         UpdateTracks();
@@ -920,6 +1063,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
         App.Window.AppWindow.Changed -= OnAppWindowChanged;
         App.Window.Activated -= OnWindowActivated;
+        MediaDevice.DefaultAudioRenderDeviceChanged -= OnDefaultAudioChanged;
         App.Services.Settings.Update(s =>
         {
             s.Volume = _vm.Volume;

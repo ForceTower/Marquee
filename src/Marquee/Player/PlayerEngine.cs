@@ -29,6 +29,12 @@ internal sealed record PlaybackRequest
     public IReadOnlyList<(string Label, string? Language, string Url)> ExternalSubtitles { get; init; } = [];
 
     public bool PlayTrueHdAsObjects { get; init; }
+
+    /// <summary>
+    /// Leave the audio out because no output can play it. Media Foundation's clock follows its audio
+    /// renderer, so an output that never takes the samples would freeze the picture.
+    /// </summary>
+    public bool WithoutSound { get; init; }
 }
 
 internal interface IPlayerEngine : IDisposable
@@ -58,6 +64,9 @@ internal interface IPlayerEngine : IDisposable
 
     /// <summary>Chapters read from the file itself (empty if the engine can't read them).</summary>
     IReadOnlyList<Chapter> Chapters { get; }
+
+    /// <summary>Playing with an audio track chosen but no audio output to play it on.</summary>
+    bool PlaysWithoutSound { get; }
 
     event Action? Opened;
     event Action? Ended;

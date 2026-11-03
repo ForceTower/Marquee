@@ -145,6 +145,32 @@ internal sealed class MpvEngine : IPlayerEngine
     /// <summary>mpv's video window belongs to mpv's thread, so it hides the cursor itself.</summary>
     public void SetCursorHidden(bool hidden) => TrySet("cursor-autohide", hidden ? "always" : "no");
 
+    /// <summary>
+    /// mpv plays on without sound when it can't open its audio device, dropping the audio track
+    /// ("aid" becomes "no"; Marquee never turns audio off itself).
+    /// </summary>
+    public bool PlaysWithoutSound =>
+        AudioTracks.Count > 0 && (_mpv.GetProperty("aid") is null or "no" || string.IsNullOrEmpty(_mpv.GetProperty("current-ao")));
+
+    /// <summary>Tries the audio device again, for when one has just appeared.</summary>
+    public async Task RetryAudioAsync(int? ordinal)
+    {
+        if (_mpv.GetProperty("aid") is null or "no")
+        {
+            await SelectAudioAsync(ordinal ?? 0);
+            return;
+        }
+
+        try
+        {
+            _mpv.Command("ao-reload");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Log.Info($"mpv: {ex.Message}");
+        }
+    }
+
     public async Task OpenAsync(PlaybackRequest request)
     {
         _request = request;

@@ -5,7 +5,11 @@ using Microsoft.UI.Xaml;
 
 namespace Marquee.Player;
 
-/// <summary>Functions for x:Bind in the player controls.</summary>
+/// <summary>
+/// Functions for x:Bind in the player controls. x:Bind doesn't call a function whose argument is
+/// null; the target keeps its old value. So a visibility mustn't hinge on a nullable argument alone:
+/// bind to a bool like <see cref="PlayerViewModel.HasMessage"/> instead.
+/// </summary>
 internal static class Bind
 {
     public static Visibility Vis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
@@ -13,10 +17,6 @@ internal static class Bind
     public static Visibility VisNot(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
 
     public static Visibility VisEither(bool a, bool b) => a || b ? Visibility.Visible : Visibility.Collapsed;
-
-    public static Visibility VisText(string? text) => string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
-
-    public static Visibility VisItem(object? item) => item is null ? Visibility.Collapsed : Visibility.Visible;
 
     public static Visibility VisAny(IEnumerable? items) => items?.GetEnumerator().MoveNext() == true ? Visibility.Visible : Visibility.Collapsed;
 

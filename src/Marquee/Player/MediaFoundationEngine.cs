@@ -66,6 +66,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     public EngineMode Kind => EngineMode.MediaFoundation;
     public string Description => _description;
     public bool IsPlaying => _player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+    public bool PlaysWithoutSound => _request?.WithoutSound == true;
     public bool IsBuffering => _player.PlaybackSession.PlaybackState is MediaPlaybackState.Buffering or MediaPlaybackState.Opening;
     public TimeSpan Position => _player.PlaybackSession.Position;
     public TimeSpan Duration => _player.PlaybackSession.NaturalDuration;
@@ -142,12 +143,12 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
             });
 
             int? atmosTrack = null;
-            if (request.PlayTrueHdAsObjects && request.Audio is int wanted && wanted < tracks.Count && tracks[wanted].CodecId == "A_TRUEHD")
+            if (!request.WithoutSound && request.PlayTrueHdAsObjects && request.Audio is int wanted && wanted < tracks.Count && tracks[wanted].CodecId == "A_TRUEHD")
             {
                 atmosTrack = tracks[wanted].Number;
             }
 
-            var mkv = await Task.Run(() => MatroskaMediaSource.Open(location, _settings.DolbyVision, windowsDts, atmosTrack));
+            var mkv = await Task.Run(() => MatroskaMediaSource.Open(location, _settings.DolbyVision, windowsDts, atmosTrack, audio: !request.WithoutSound));
             mkv.Error += message => Log.Error($"MKV reader: {message}");
             mkv.Trace += message => Log.Info($"MKV reader: {message}");
             Log.Info("MKV reader:\n  " + string.Join("\n  ", mkv.Description));
@@ -168,7 +169,8 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
             var dv = mkv.Demuxer.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video)?.DolbyVision;
             _description = Format.Join("Media Foundation",
                 dv is not null && _settings.DolbyVision ? $"Dolby Vision P{dv.Profile}{(dv.Profile == 7 ? " → 8.1" : "")}" : null,
-                atmosTrack is not null ? "TrueHD Atmos objects" : null);
+                atmosTrack is not null ? "TrueHD Atmos objects" : null,
+                request.WithoutSound ? "no sound" : null);
             _source = MediaSource.CreateFromMediaStreamSource(mkv.Source);
         }
         else
@@ -279,16 +281,17 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
 
         bool wantsObjects = _request.PlayTrueHdAsObjects && _audio[ordinal].CodecId == "A_TRUEHD";
         bool hasObjects = _atmos is not null;
-        if (!wantsObjects && !hasObjects && _audio[ordinal].MfIndex is not null)
+        if (!wantsObjects && !hasObjects && !_request.WithoutSound && _audio[ordinal].MfIndex is not null)
         {
             SelectMfAudio(ordinal);
             TracksChanged?.Invoke();
             return;
         }
 
-        // The TrueHD Atmos path plays audio outside Media Foundation, so switching in or out reopens.
+        // The TrueHD Atmos path plays audio outside Media Foundation, so switching in or out reopens;
+        // so does picking a track while playing without sound, which tries the audio output again.
         bool playing = IsPlaying;
-        await OpenAsync(_request with { Audio = ordinal, Start = Position });
+        await OpenAsync(_request with { Audio = ordinal, Start = Position, WithoutSound = false });
         if (playing)
         {
             Play();
