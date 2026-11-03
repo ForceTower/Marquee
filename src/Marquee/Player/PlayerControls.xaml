@@ -104,12 +104,6 @@
                 <StackPanel x:Name="BadgePanel" Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" />
             </Grid>
 
-            <!-- Skip intro / credits -->
-            <Button x:Name="SkipButton" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,150"
-                    Height="44" Padding="20,0" CornerRadius="6" Background="#D924272C" BorderBrush="#33FFFFFF" BorderThickness="1"
-                    Content="{x:Bind ViewModel.SkipLabel, Mode=OneWay}" FontWeight="SemiBold"
-                    Visibility="{x:Bind local:Bind.Vis(ViewModel.HasSkip), Mode=OneWay}" Click="Skip_Click" />
-
             <!-- Bottom bar -->
             <StackPanel x:Name="BottomBar" VerticalAlignment="Bottom" Padding="24,64,24,20" Spacing="10">
                 <StackPanel.Background>
@@ -242,6 +236,12 @@
                     </StackPanel>
                 </Grid>
             </StackPanel>
+
+            <!-- Skip intro / credits. After the bottom bar, whose gradient reaches over it and would take the press. -->
+            <Button x:Name="SkipButton" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,150"
+                    Height="44" Padding="20,0" CornerRadius="6" Background="#D924272C" BorderBrush="#33FFFFFF" BorderThickness="1"
+                    Content="{x:Bind ViewModel.SkipLabel, Mode=OneWay}" FontWeight="SemiBold"
+                    Visibility="{x:Bind local:Bind.Vis(ViewModel.HasSkip), Mode=OneWay}" Click="Skip_Click" />
 
             <!-- Up next -->
             <Border x:Name="UpNextCard" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,150" Width="360" Padding="16"
