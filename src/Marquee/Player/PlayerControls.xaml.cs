@@ -40,6 +40,9 @@ public sealed partial class PlayerControls : UserControl
     /// <summary>True while the user is using the controls, so they shouldn't auto-hide.</summary>
     public bool IsBusy => _dragging || _openFlyouts > 0;
 
+    /// <summary>The bottom bar's controls in DIPs, from the time row down (not the gradient fading in above it).</summary>
+    public double BottomControlsHeight => BottomBar.ActualHeight - BottomBar.Padding.Top;
+
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)

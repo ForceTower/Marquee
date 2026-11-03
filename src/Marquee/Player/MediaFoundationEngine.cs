@@ -46,6 +46,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     private SubtitlePlayback? _subtitles;
     private int _subtitleGeneration;
     private (int Width, int Height) _subtitleArea;
+    private int _subtitleReserve;
     private double _subtitleDelay;
     private TaskCompletionSource? _opened;
     private TimeSpan? _pendingStart;
@@ -462,6 +463,12 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         ApplySubtitleLayout();
     }
 
+    public void SetSubtitleBottomReserve(int pixels)
+    {
+        _subtitleReserve = pixels;
+        ApplySubtitleLayout();
+    }
+
     private void ApplySubtitleLayout()
     {
         if (_subtitles is not { } subtitles)
@@ -470,7 +477,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         }
 
         var (width, height) = VideoSize();
-        subtitles.Layout = SubtitleLayout.Fit(_subtitleArea.Width, _subtitleArea.Height, width, height);
+        subtitles.Layout = SubtitleLayout.Fit(_subtitleArea.Width, _subtitleArea.Height, width, height) with { BottomReserve = _subtitleReserve };
     }
 
     private (int Width, int Height) VideoSize()
@@ -493,6 +500,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         var video = _videoTrack;
         var (width, height) = VideoSize();
         double frameRate = video is { DefaultDurationNs: > 0 } ? 1e9 / video.DefaultDurationNs : 24;
+        var style = TextStyle.Parse(_settings.SubtitleColor, _settings.SubtitleOutlineColor);
         void Report(string message) => Log.Info($"Subtitles: {message}");
 
         SubtitlePlayback playback;
@@ -502,11 +510,11 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
             {
                 if (choice.Track is { } track && mkv is not null)
                 {
-                    return SubtitleOpener.OpenEmbedded(location, track, mkv.Demuxer, video, clock.Now, Report);
+                    return SubtitleOpener.OpenEmbedded(location, track, mkv.Demuxer, video, clock.Now, Report, style);
                 }
 
                 byte[] content = choice.Url is { } url ? await Http.GetByteArrayAsync(url) : await File.ReadAllBytesAsync(choice.Path!);
-                return SubtitleOpener.OpenFile(content, choice.Codec ?? SubtitleCodec.SubRip, choice.Option.Label, width, height, frameRate, clock.Now, Report);
+                return SubtitleOpener.OpenFile(content, choice.Codec ?? SubtitleCodec.SubRip, choice.Option.Label, width, height, frameRate, clock.Now, Report, style);
             });
         }
         catch (Exception ex)

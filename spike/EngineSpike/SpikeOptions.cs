@@ -39,6 +39,9 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
 
     public int? SubtitleTrack { get; init; }
 
+    /// <summary>Subtitle test mode: a bottom strip in pixels (like the player controls) that bottom subtitles move out of.</summary>
+    public int SubtitleReserve { get; init; }
+
     public static SpikeOptions Parse(string[] args)
     {
         Engine? engine = null;
@@ -61,6 +64,7 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
         string? dvInfoOutput = null;
         string? subtitleTestFolder = null;
         int? subtitleTrack = null;
+        int subtitleReserve = 0;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -119,6 +123,9 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
                 case "--sub-track" when i + 1 < args.Length:
                     subtitleTrack = int.Parse(args[++i]);
                     break;
+                case "--sub-reserve" when i + 1 < args.Length:
+                    subtitleReserve = int.Parse(args[++i]);
+                    break;
                 case "--audio-track" when i + 1 < args.Length:
                     audioTrack = int.Parse(args[++i]);
                     break;
@@ -148,6 +155,7 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
             DvInfoOutput = dvInfoOutput,
             SubtitleTestFolder = subtitleTestFolder,
             SubtitleTrack = subtitleTrack,
+            SubtitleReserve = subtitleReserve,
         };
     }
 }

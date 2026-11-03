@@ -31,6 +31,9 @@ internal sealed class MpvEngine : IPlayerEngine
     private bool _buffering;
     private int _audioDelay;
     private string _description = "mpv";
+    private int _stageHeight;
+    private int _subtitleReserve;
+    private double _subtitleLift;
 
     public MpvEngine(IntPtr parentWindow, AppSettings settings)
     {
@@ -87,6 +90,8 @@ internal sealed class MpvEngine : IPlayerEngine
 
         TrySet("audio-exclusive", settings.ExclusiveAudio ? "yes" : "no");
         TrySet("volume", settings.Volume.ToString(CultureInfo.InvariantCulture));
+        TrySet("sub-color", settings.SubtitleColor);
+        TrySet("sub-outline-color", settings.SubtitleOutlineColor);
     }
 
     public EngineMode Kind => EngineMode.Mpv;
@@ -142,7 +147,11 @@ internal sealed class MpvEngine : IPlayerEngine
 
     public VideoHostWindow Host => _host;
 
-    public void SetBounds(RectInt32 bounds) => _host.SetBounds(bounds);
+    public void SetBounds(RectInt32 bounds)
+    {
+        _stageHeight = bounds.Height;
+        _host.SetBounds(bounds);
+    }
 
     public void ShowVideo(bool visible) => _host.Show(visible);
 
@@ -373,6 +382,28 @@ internal sealed class MpvEngine : IPlayerEngine
 
     public void SetSubtitleDelay(double seconds) => TrySet("sub-delay", seconds.ToString(CultureInfo.InvariantCulture));
 
+    public void SetSubtitleBottomReserve(int pixels) => _subtitleReserve = pixels;
+
+    /// <summary>
+    /// Eases mpv's <c>sub-pos</c> towards the reserve, a step per tick. mpv's bottom subtitles
+    /// already sit <c>sub-margin-y</c> (22 of 720 lines) above the bottom, so they lift by the rest.
+    /// </summary>
+    private void EaseSubtitlePosition()
+    {
+        if (_stageHeight <= 0)
+        {
+            return;
+        }
+
+        double goal = Math.Max(0, _subtitleReserve - _stageHeight * 22.0 / 720);
+        double lift = Math.Abs(goal - _subtitleLift) < 1 ? goal : _subtitleLift + (goal - _subtitleLift) * 0.5;
+        if (lift != _subtitleLift)
+        {
+            _subtitleLift = lift;
+            TrySet("sub-pos", (100 - 100 * lift / _stageHeight).ToString("0.##", CultureInfo.InvariantCulture));
+        }
+    }
+
     public IEnumerable<string> Statistics() => _mpv.Describe();
 
     public void Tick()
@@ -382,6 +413,7 @@ internal sealed class MpvEngine : IPlayerEngine
         _buffered = Seconds("demuxer-cache-time") ?? _buffered;
         _paused = _mpv.GetProperty("pause") == "yes";
         _buffering = _mpv.GetProperty("paused-for-cache") == "yes" || _mpv.GetProperty("seeking") == "yes";
+        EaseSubtitlePosition();
     }
 
     private TimeSpan? Seconds(string property) =>
@@ -389,15 +421,17 @@ internal sealed class MpvEngine : IPlayerEngine
             ? TimeSpan.FromSeconds(s)
             : null;
 
-    private void TrySet(string property, string value)
+    private bool TrySet(string property, string value)
     {
         try
         {
             _mpv.SetProperty(property, value);
+            return true;
         }
         catch (InvalidOperationException ex)
         {
             Log.Info($"mpv: {ex.Message}");
+            return false;
         }
     }
 

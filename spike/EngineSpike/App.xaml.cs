@@ -51,7 +51,7 @@ public partial class App : Application
 
         if (options is { SubtitleTestFolder: { } folder, Path: { } media })
         {
-            _ = RunSubtitleTestAsync(media, folder, options.Start ?? TimeSpan.FromMinutes(10), options.SubtitleTrack);
+            _ = RunSubtitleTestAsync(media, folder, options.Start ?? TimeSpan.FromMinutes(10), options.SubtitleTrack, options.SubtitleReserve);
             return;
         }
 
@@ -66,12 +66,12 @@ public partial class App : Application
         _window.Activate();
     }
 
-    private async Task RunSubtitleTestAsync(string media, string folder, TimeSpan at, int? track)
+    private async Task RunSubtitleTestAsync(string media, string folder, TimeSpan at, int? track, int reserve)
     {
         string result;
         try
         {
-            result = await Marquee.Playback.Subtitles.SubtitleProbe.RunAsync(media, folder, at, track);
+            result = await Marquee.Playback.Subtitles.SubtitleProbe.RunAsync(media, folder, at, track, reserve);
         }
         catch (Exception ex)
         {

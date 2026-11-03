@@ -4,30 +4,51 @@ using System.Text.RegularExpressions;
 
 namespace Marquee.Playback.Subtitles;
 
+/// <summary>Colours for plain-text subtitles, as 0xRRGGBB.</summary>
+internal readonly record struct TextStyle(uint Colour, uint OutlineColour)
+{
+    public static TextStyle Default { get; } = new(0xFFFFFF, 0x000000);
+
+    /// <summary>From "#RRGGBB" strings (settings); anything unreadable keeps the default.</summary>
+    public static TextStyle Parse(string? colour, string? outline) =>
+        new(Rgb(colour) ?? Default.Colour, Rgb(outline) ?? Default.OutlineColour);
+
+    private static uint? Rgb(string? hex) =>
+        hex?.TrimStart('#') is { Length: 6 } digits && uint.TryParse(digits, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb) ? rgb : null;
+}
+
 /// <summary>
 /// Plain-text subtitles (SubRip, WebVTT) as ASS, the way mpv shows them: converted to ASS events
 /// with a default style and rendered by libass, so every text format looks and wraps the same.
 /// </summary>
 internal static partial class TextSubtitles
 {
+    /// <summary>The style's bottom margin in <see cref="PlayResY"/> units.</summary>
+    public const int MarginV = 64;
+
+    public const int PlayResY = 1080;
+
     /// <summary>The script header converted text events play under. PlayRes is 1080p; libass scales it.</summary>
-    public const string Header = """
+    public static string Header(TextStyle style) => $"""
         [Script Info]
         ScriptType: v4.00+
         PlayResX: 1920
-        PlayResY: 1080
+        PlayResY: {PlayResY}
         ScaledBorderAndShadow: yes
         WrapStyle: 0
         YCbCr Matrix: None
 
         [V4+ Styles]
         Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-        Style: Default,Segoe UI,58,&H00FFFFFF,&H000000FF,&H00101010,&H99000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,140,140,64,1
+        Style: Default,Segoe UI,58,{AssColour(style.Colour)},&H000000FF,{AssColour(style.OutlineColour)},&H99000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,140,140,{MarginV},1
 
         [Events]
         Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         """;
+
+    /// <summary>0xRRGGBB as ASS's opaque &amp;H00BBGGRR.</summary>
+    private static string AssColour(uint rgb) => $"&H00{rgb & 0xFF:X2}{(rgb >> 8) & 0xFF:X2}{(rgb >> 16) & 0xFF:X2}";
 
     private static readonly Dictionary<string, string> NamedColours = new(StringComparer.OrdinalIgnoreCase)
     {

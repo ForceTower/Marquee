@@ -294,13 +294,21 @@ internal sealed unsafe class BitmapSubtitleRenderer : ISubtitleRenderer
             y0 = Math.Clamp(layout.VideoY + (layout.VideoHeight - set.CanvasHeight * scale) / 2, 0, Math.Max(0, layout.Height - set.CanvasHeight * scale));
         }
 
+        // Bitmaps in the lower half of the picture move up together, just clear of the bottom reserve.
+        double middle = layout.VideoY + layout.VideoHeight / 2.0;
+        double limit = layout.Height - layout.BottomReserve;
+        bool Lower(Bitmap b) => y0 + (b.Y + b.Height / 2.0) * sy > middle;
+        double lift = layout.BottomReserve <= 0
+            ? 0
+            : Math.Max(0, set.Bitmaps.Where(Lower).Select(b => y0 + (b.Y + b.Height) * sy).DefaultIfEmpty(0).Max() - limit);
+
         return new SubtitleFrame(set.Bitmaps.Select(b => new SubtitleImage
         {
             Pixels = b.Pixels,
             Width = b.Width,
             Height = b.Height,
             X = x0 + b.X * sx,
-            Y = y0 + b.Y * sy,
+            Y = y0 + b.Y * sy - (Lower(b) ? lift : 0),
             DisplayWidth = b.Width * sx,
             DisplayHeight = b.Height * sy,
         }).ToList());

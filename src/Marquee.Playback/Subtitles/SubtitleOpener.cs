@@ -19,8 +19,9 @@ internal static class SubtitleOpener
 
     /// <param name="playbackDemuxer">The demuxer feeding the video, for files whose index doesn't cover the track.</param>
     /// <param name="video">The video track, for its size and frame rate.</param>
+    /// <param name="style">Colours for plain-text subtitles.</param>
     public static SubtitlePlayback OpenEmbedded(string location, MatroskaTrack track, MatroskaDemuxer playbackDemuxer, MatroskaTrack? video,
-        Func<VideoClock> clock, Action<string>? log = null)
+        Func<VideoClock> clock, Action<string>? log = null, TextStyle? style = null)
     {
         var codec = SubtitleCodecs.FromMatroska(track.CodecId) ?? throw new NotSupportedException($"Subtitle codec {track.CodecId} isn't supported");
         int width = video?.Width ?? 0, height = video?.Height ?? 0;
@@ -28,7 +29,7 @@ internal static class SubtitleOpener
         List<MatroskaAttachment> fonts = codec == SubtitleCodec.Ass ? Fonts(location) : [];
         ISubtitleRenderer renderer = codec.IsBitmap()
             ? new BitmapSubtitleRenderer(codec, track.CodecPrivate, width, height)
-            : new AssRenderer(codec, track.CodecPrivate, fonts, width, height, log);
+            : new AssRenderer(codec, track.CodecPrivate, fonts, width, height, log, style);
 
         MatroskaSubtitleSource source;
         try
@@ -61,7 +62,7 @@ internal static class SubtitleOpener
 
     /// <summary>A whole subtitle file: ASS/SSA, SubRip or WebVTT, in any common encoding.</summary>
     public static SubtitlePlayback OpenFile(byte[] content, SubtitleCodec codec, string label, int videoWidth, int videoHeight, double frameRate,
-        Func<VideoClock> clock, Action<string>? log = null)
+        Func<VideoClock> clock, Action<string>? log = null, TextStyle? style = null)
     {
         string text = TextSubtitles.Decode(content);
         ISubtitleRenderer renderer;
@@ -73,7 +74,7 @@ internal static class SubtitleOpener
                 break;
             case SubtitleCodec.SubRip or SubtitleCodec.WebVtt:
                 packets = TextSubtitles.ParseCues(text);
-                renderer = new AssRenderer(codec, null, [], videoWidth, videoHeight, log);
+                renderer = new AssRenderer(codec, null, [], videoWidth, videoHeight, log, style);
                 break;
             default:
                 throw new NotSupportedException($"{codec} subtitle files aren't supported");

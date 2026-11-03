@@ -90,6 +90,12 @@ internal interface IPlayerEngine : IDisposable
     void SelectSubtitle(int? ordinal);
     void AddSubtitleFile(string path);
     void SetSubtitleDelay(double seconds);
+
+    /// <summary>
+    /// Keeps bottom subtitles out of a strip this many pixels tall at the bottom of the video area
+    /// (the controls, while they show); 0 puts them back. The engine eases them between the two.
+    /// </summary>
+    void SetSubtitleBottomReserve(int pixels);
     IEnumerable<string> Statistics();
 
     /// <summary>Called every 50 ms from the UI thread while open.</summary>

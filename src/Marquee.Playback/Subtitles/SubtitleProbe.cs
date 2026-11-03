@@ -14,12 +14,13 @@ namespace Marquee.Playback.Subtitles;
 /// </summary>
 internal static class SubtitleProbe
 {
-    public static async Task<string> RunAsync(string location, string outputFolder, TimeSpan at, int? onlyTrack, int width = 1920, int height = 1080)
+    /// <param name="reserve">A bottom strip (as the player controls make) for bottom subtitles to move out of.</param>
+    public static async Task<string> RunAsync(string location, string outputFolder, TimeSpan at, int? onlyTrack, int reserve = 0, int width = 1920, int height = 1080)
     {
         Directory.CreateDirectory(outputFolder);
         if (SubtitleCodecs.FromName(Path.GetExtension(location).TrimStart('.')) is SubtitleCodec fileCodec)
         {
-            return await RenderFileAsync(location, fileCodec, outputFolder, at, SubtitleLayout.Fit(width, height, 1920, 1080));
+            return await RenderFileAsync(location, fileCodec, outputFolder, at, SubtitleLayout.Fit(width, height, 1920, 1080) with { BottomReserve = reserve });
         }
 
         var report = new StringBuilder();
@@ -29,7 +30,7 @@ internal static class SubtitleProbe
         report.AppendLine($"{location}");
         report.AppendLine($"video {video?.CodecId} {video?.Width}x{video?.Height}, {demuxer.Cues.Count} cues, {attachments.Count} attachments: " +
                           string.Join(", ", attachments.Select(a => $"{a.Name} ({a.MimeType}, {a.Data.Length / 1024} KB)")));
-        var layout = SubtitleLayout.Fit(width, height, video?.Width ?? width, video?.Height ?? height);
+        var layout = SubtitleLayout.Fit(width, height, video?.Width ?? width, video?.Height ?? height) with { BottomReserve = reserve };
 
         foreach (var track in demuxer.Tracks.Where(t => t.Kind == TrackKind.Subtitle && (onlyTrack is null || t.Number == onlyTrack)))
         {
@@ -170,7 +171,7 @@ internal static class SubtitleProbe
         return log.ToString().TrimEnd();
     }
 
-    /// <summary>The frame over a dark grey canvas, with the video's rectangle a shade lighter.</summary>
+    /// <summary>The frame over a dark grey canvas, the video's rectangle a shade lighter and the bottom reserve darker.</summary>
     private static async Task SaveAsync(SubtitleFrame frame, SubtitleLayout layout, string path)
     {
         var canvas = new byte[layout.Width * layout.Height * 4];
@@ -179,7 +180,7 @@ internal static class SubtitleProbe
             for (int x = 0; x < layout.Width; x++)
             {
                 bool inVideo = x >= layout.VideoX && x < layout.VideoX + layout.VideoWidth && y >= layout.VideoY && y < layout.VideoY + layout.VideoHeight;
-                byte shade = (byte)(inVideo ? 70 : 30);
+                byte shade = (byte)(y >= layout.Height - layout.BottomReserve ? 12 : inVideo ? 70 : 30);
                 int i = (y * layout.Width + x) * 4;
                 canvas[i] = canvas[i + 1] = canvas[i + 2] = shade;
                 canvas[i + 3] = 255;

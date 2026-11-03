@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Marquee.Playback.MediaFoundation;
 
 namespace Marquee.Playback.Subtitles;
@@ -5,10 +6,13 @@ namespace Marquee.Playback.Subtitles;
 /// <summary>
 /// Shows one subtitle track in step with a video clock. A thread of its own feeds the track's
 /// packets to its renderer and renders once per video frame (or when the layout, the delay or the
-/// packets change), raising <see cref="FrameReady"/> whenever what's on screen changes.
+/// packets change), raising <see cref="FrameReady"/> whenever what's on screen changes. Changes to
+/// the layout's bottom reserve are eased, so subtitles glide out of the controls' way.
 /// </summary>
 internal sealed class SubtitlePlayback : IDisposable
 {
+    private const double ReserveEaseSeconds = 0.06;
+
     private readonly ISubtitleSource _source;
     private readonly ISubtitleRenderer _renderer;
     private readonly Func<VideoClock> _clock;
@@ -18,6 +22,9 @@ internal sealed class SubtitlePlayback : IDisposable
     private readonly object _layoutLock = new();
     private SubtitleLayout _layout;
     private bool _layoutChanged;
+    private SubtitleLayout _rendered;
+    private double _reserve;
+    private long _reserveStamp;
     private long _delayTicks;
     private volatile bool _stop;
 
@@ -84,13 +91,20 @@ internal sealed class SubtitlePlayback : IDisposable
                 added = true;
             }
 
-            SubtitleLayout layout;
+            SubtitleLayout target;
             bool force;
             lock (_layoutLock)
             {
-                layout = _layout;
+                target = _layout;
                 force = _layoutChanged;
                 _layoutChanged = false;
+            }
+
+            var layout = target with { BottomReserve = EaseReserve(target.BottomReserve) };
+            if (layout != _rendered)
+            {
+                _rendered = layout;
+                force = true;
             }
 
             VideoClock clock = _clock();
@@ -134,6 +148,21 @@ internal sealed class SubtitlePlayback : IDisposable
                 _wake.WaitOne(100);
             }
         }
+    }
+
+    /// <summary>Moves the reserve in use exponentially towards <paramref name="goal"/>, about 95% of the way in 0.18 s.</summary>
+    private int EaseReserve(int goal)
+    {
+        long now = Stopwatch.GetTimestamp();
+        double elapsed = _reserveStamp == 0 ? 0 : Stopwatch.GetElapsedTime(_reserveStamp, now).TotalSeconds;
+        _reserveStamp = now;
+        _reserve += (goal - _reserve) * Math.Min(1, elapsed / ReserveEaseSeconds);
+        if (Math.Abs(goal - _reserve) < 1)
+        {
+            _reserve = goal;
+        }
+
+        return (int)Math.Round(_reserve);
     }
 
     public void Dispose()

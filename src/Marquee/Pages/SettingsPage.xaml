@@ -35,7 +35,7 @@
             <StackPanel x:Name="PlaybackPanel" Spacing="8">
                 <TextBlock Text="Video" Style="{StaticResource GroupTitleTextStyle}" Margin="0,0,0,4" />
                 <controls:SettingsCard Glyph="&#xE7F4;" Header="Playback engine"
-                                       Description="Automatic uses Media Foundation when it adds something: real Dolby Vision, Atmos objects or DTS:X. Everything else, and anything with subtitles, plays through mpv.">
+                                       Description="Automatic uses Media Foundation when it adds something: real Dolby Vision, Atmos objects or DTS:X. Everything else plays through mpv, as do subtitle tracks inside MP4 files.">
                     <ComboBox x:Name="EngineBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
                         <ComboBoxItem Content="Automatic" Tag="Automatic" />
                         <ComboBoxItem Content="Always mpv" Tag="Mpv" />
@@ -126,8 +126,14 @@
                 <controls:SettingsCard Glyph="&#xE8D6;" Header="Preferred audio language" Description="Picks this language's best track (Atmos, then lossless, then the most channels). Original follows the file's default track.">
                     <ComboBox x:Name="AudioLanguageBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed" />
                 </controls:SettingsCard>
-                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Foreground="{StaticResource TextTertiaryBrush}" TextWrapping="Wrap" MaxWidth="720" HorizontalAlignment="Left"
-                           Text="Media Foundation can't show subtitles yet, so turning them on routes playback through mpv (Dolby Vision is then shown as HDR10)." />
+
+                <TextBlock Text="Style" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
+                <controls:SettingsCard Glyph="&#xE790;" Header="Text color" Description="For plain-text subtitles (SRT, WebVTT). Styled ASS subtitles keep their own colors, and Blu-ray and DVD subtitles are pictures.">
+                    <StackPanel x:Name="SubtitleColorSwatches" Orientation="Horizontal" Spacing="10" />
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE790;" Header="Outline color" Description="The border around each letter.">
+                    <StackPanel x:Name="SubtitleOutlineSwatches" Orientation="Horizontal" Spacing="10" />
+                </controls:SettingsCard>
             </StackPanel>
 
             <!-- Library -->

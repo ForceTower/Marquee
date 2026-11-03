@@ -72,6 +72,13 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         _hwnd = WindowNative.GetWindowHandle(App.Window);
         _inline = new PlayerControls(_vm, this);
         InlineHost.Child = _inline;
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlayerViewModel.ControlsVisible))
+            {
+                UpdateSubtitleReserve();
+            }
+        };
         _vm.Volume = _settings.Volume;
         _vm.IsMuted = StartMuted;
         _vm.AudioDelayMs = _settings.AtmosLipSyncMs;
@@ -315,6 +322,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             return;
         }
 
+        UpdateSubtitleReserve();
         var position = _pendingSeek is { } pending ? TimeSpan.FromSeconds(pending) : engine.Position;
         var duration = engine.Duration > TimeSpan.Zero ? engine.Duration : TimeSpan.FromMilliseconds(_request?.Item.DurationMs ?? 0);
         _vm.Duration = Math.Max(1, duration.TotalSeconds);
@@ -724,6 +732,21 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         {
             _mf.SetSubtitleArea(client.Width, client.Height);
         }
+
+        UpdateSubtitleReserve();
+    }
+
+    /// <summary>While the controls show, bottom subtitles move up above them (with a little air).</summary>
+    private void UpdateSubtitleReserve()
+    {
+        if (_engine is not { } engine || Stage.XamlRoot is null)
+        {
+            return;
+        }
+
+        var controls = engine == _mpv ? _overlayControls : _inline;
+        double height = _vm.ControlsVisible && controls is not null ? controls.BottomControlsHeight + 20 : 0;
+        engine.SetSubtitleBottomReserve((int)Math.Round(Math.Max(0, height) * Stage.XamlRoot.RasterizationScale));
     }
 
     /// <summary>The stage in physical pixels, relative to the window's client area.</summary>

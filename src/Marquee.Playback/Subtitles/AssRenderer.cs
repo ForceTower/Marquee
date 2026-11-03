@@ -28,7 +28,9 @@ internal sealed unsafe class AssRenderer : ISubtitleRenderer
     /// </param>
     /// <param name="fonts">Fonts attached to the file, which ASS styles often name.</param>
     /// <param name="storageWidth">The video's coded size, which libass scales blur and borders by.</param>
-    public AssRenderer(SubtitleCodec codec, byte[]? header, IEnumerable<MatroskaAttachment> fonts, int storageWidth, int storageHeight, Action<string>? log = null)
+    /// <param name="style">Colours for converted text; ASS keeps its own.</param>
+    public AssRenderer(SubtitleCodec codec, byte[]? header, IEnumerable<MatroskaAttachment> fonts, int storageWidth, int storageHeight,
+        Action<string>? log = null, TextStyle? style = null)
     {
         _codec = codec;
         _storageWidth = storageWidth;
@@ -64,7 +66,7 @@ internal sealed unsafe class AssRenderer : ISubtitleRenderer
         {
             // Unicode line breaking (libunibreak) wraps text without spaces, such as Japanese and
             // Chinese. ASS scripts keep VSFilter's breaking at spaces, which they're authored for.
-            LibAss.ProcessCodecPrivate(_track, TextSubtitles.Header);
+            LibAss.ProcessCodecPrivate(_track, TextSubtitles.Header(style ?? TextStyle.Default));
             LibAss.ass_track_set_feature(_track, LibAss.Feature.WrapUnicode, 1);
         }
     }
@@ -177,6 +179,50 @@ internal sealed unsafe class AssRenderer : ISubtitleRenderer
         LibAss.ass_set_margins(_renderer, layout.VideoY, layout.Height - layout.VideoY - layout.VideoHeight, layout.VideoX, layout.Width - layout.VideoX - layout.VideoWidth);
         LibAss.ass_set_use_margins(_renderer, Converted ? 1 : 0);
         LibAss.ass_set_font_scale(_renderer, Converted ? layout.Height / (double)Math.Max(1, layout.VideoHeight) : 1);
+        LibAss.ass_set_line_position(_renderer, LinePosition(layout));
+    }
+
+    /// <summary>
+    /// libass's line position (mpv's <c>sub-pos</c>, inverted) that lifts bottom subtitles just clear
+    /// of <see cref="SubtitleLayout.BottomReserve"/>. It moves only plain bottom-aligned events, so
+    /// signs placed with \pos or \move and top lines stay put. libass puts a subtitle's bottom at
+    /// <c>bottom + (top - bottom) × position / 100</c>; this mirrors its <c>y2scr_sub</c> and
+    /// <c>y2scr_top</c> to find both.
+    /// </summary>
+    private double LinePosition(SubtitleLayout layout)
+    {
+        if (layout.BottomReserve <= 0)
+        {
+            return 0;
+        }
+
+        double playResY = _track->PlayResY > 0 ? _track->PlayResY : 288;
+        double marginV = Converted ? TextSubtitles.MarginV : DefaultMarginV();
+        double top, bottom;
+        if (Converted)
+        {
+            // With margins in use, PlayRes spans the video fitted to the overlay's width or height.
+            double fitHeight = (long)layout.VideoWidth * layout.Height <= (long)layout.VideoHeight * layout.Width
+                ? layout.Height
+                : (double)layout.VideoHeight * layout.Width / layout.VideoWidth;
+            top = 0;
+            bottom = (playResY - marginV) * fitHeight / playResY + (layout.Height - fitHeight);
+        }
+        else
+        {
+            top = layout.VideoY;
+            bottom = layout.VideoY + (playResY - marginV) * layout.VideoHeight / playResY;
+        }
+
+        double limit = layout.Height - layout.BottomReserve;
+        return bottom > limit && bottom > top ? Math.Min(100, 100 * (bottom - limit) / (bottom - top)) : 0;
+    }
+
+    private int DefaultMarginV()
+    {
+        var track = _track;
+        int index = track->DefaultStyle >= 0 && track->DefaultStyle < track->StyleCount ? track->DefaultStyle : -1;
+        return index >= 0 ? track->Styles[index].MarginV : 0;
     }
 
     /// <summary>Draws one libass coverage mask, in its colour, over the premultiplied BGRA canvas.</summary>

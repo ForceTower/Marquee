@@ -43,8 +43,12 @@ internal static class SubtitleCodecs
 /// <summary>One subtitle event or display set, as stored in the container.</summary>
 internal sealed record SubtitlePacket(long TimeTicks, long DurationTicks, byte[] Data);
 
-/// <summary>The subtitle overlay in physical pixels: its size and where the video sits in it.</summary>
-internal readonly record struct SubtitleLayout(int Width, int Height, int VideoX, int VideoY, int VideoWidth, int VideoHeight)
+/// <summary>
+/// The subtitle overlay in physical pixels: its size and where the video sits in it.
+/// <see cref="BottomReserve"/> is a strip at the bottom (the player controls, while they show)
+/// that bottom subtitles move up out of.
+/// </summary>
+internal readonly record struct SubtitleLayout(int Width, int Height, int VideoX, int VideoY, int VideoWidth, int VideoHeight, int BottomReserve = 0)
 {
     public bool IsEmpty => Width <= 0 || Height <= 0 || VideoWidth <= 0 || VideoHeight <= 0;
 

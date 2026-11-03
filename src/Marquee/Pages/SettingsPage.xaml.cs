@@ -45,6 +45,7 @@ public sealed partial class SettingsPage : Page
         FillLanguages(MetadataLanguageBox, null, S.MetadataLanguage, regional: true);
         TmdbKeyBox.Password = Tmdb.ApiKey ?? "";
         BuildAccents();
+        BuildSubtitleColors();
         BuildShortcuts();
         UpdateLibraryInfo();
         VersionText.Text = $"Version {Plex.PlexClientIdentity.Version}";
@@ -156,6 +157,96 @@ public sealed partial class SettingsPage : Page
             AccentSwatches.Children.Add(swatch);
         }
     }
+
+    // ---- subtitle style ----
+
+    private static readonly string[] SubtitleColors = ["#FFFFFF", "#D6D6D6", "#FFE45C", "#F5B544", "#7FE0F0", "#9BE58F"];
+    private static readonly string[] OutlineColors = ["#000000", "#3A3A3A", "#6E6E6E", "#1B2A44"];
+
+    private void BuildSubtitleColors()
+    {
+        BuildColorRow(SubtitleColorSwatches, SubtitleColors, S.SubtitleColor, "Text", color => App.Services.Settings.Update(s => s.SubtitleColor = color));
+        BuildColorRow(SubtitleOutlineSwatches, OutlineColors, S.SubtitleOutlineColor, "Outline", color => App.Services.Settings.Update(s => s.SubtitleOutlineColor = color));
+    }
+
+    /// <summary>
+    /// Preset swatches, the chosen one ringed outside (a ring inside wouldn't show on white), then
+    /// "Custom…" with a color picker, which shows the color when it's the one in use.
+    /// </summary>
+    private void BuildColorRow(StackPanel row, string[] presets, string current, string name, Action<string> save)
+    {
+        void Choose(string color)
+        {
+            save(color);
+            BuildSubtitleColors();
+        }
+
+        row.Children.Clear();
+        foreach (string color in presets)
+        {
+            var swatch = ColorSwatch(color);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(swatch, $"{name} color {color}");
+            swatch.Click += (_, _) => Choose(color);
+            var cell = new Grid();
+            if (string.Equals(color, current, StringComparison.OrdinalIgnoreCase))
+            {
+                cell.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
+                {
+                    Stroke = (Brush)Application.Current.Resources["TextPrimaryBrush"],
+                    StrokeThickness = 2,
+                    Margin = new Thickness(-5),
+                    IsHitTestVisible = false,
+                });
+            }
+
+            cell.Children.Add(swatch);
+            row.Children.Add(cell);
+        }
+
+        var picker = new ColorPicker
+        {
+            Color = Theme.Parse(current),
+            IsAlphaEnabled = false,
+            IsMoreButtonVisible = false,
+            IsColorChannelTextInputVisible = false,
+            IsHexInputVisible = true,
+        };
+        var flyout = new Flyout { Content = picker };
+        flyout.Closed += (_, _) =>
+        {
+            string picked = $"#{picker.Color.R:X2}{picker.Color.G:X2}{picker.Color.B:X2}";
+            if (!string.Equals(picked, current, StringComparison.OrdinalIgnoreCase))
+            {
+                Choose(picked);
+            }
+        };
+
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (!presets.Contains(current, StringComparer.OrdinalIgnoreCase))
+        {
+            content.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
+            {
+                Width = 14,
+                Height = 14,
+                Fill = new SolidColorBrush(Theme.Parse(current)),
+                Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(0x66, 255, 255, 255)),
+                StrokeThickness = 1,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        content.Children.Add(new TextBlock { Text = "Custom…", VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new Button { Content = content, Flyout = flyout, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+    }
+
+    /// <summary>A round swatch with a hairline edge, so black and navy stay visible on the dark page.</summary>
+    private static Button ColorSwatch(string color) => new()
+    {
+        Style = (Style)Application.Current.Resources["AccentSwatchStyle"],
+        Background = new SolidColorBrush(Theme.Parse(color)),
+        BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(0x40, 255, 255, 255)),
+        BorderThickness = new Thickness(1),
+    };
 
     // ---- languages and devices ----
 

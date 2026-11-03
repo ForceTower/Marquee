@@ -174,10 +174,22 @@ Next:
     `PresentationClock` (see the TrueHD Atmos sync notes).
   - **Drawing:** `SubtitleOverlay` draws the newest frame as `WriteableBitmap`s on a Canvas over
     `MediaPlayerElement`. That's XAML content, so in HDR it shows at Windows' SDR brightness.
+  - **Out of the controls' way:** while the controls show, `PlayerView` gives the engine a bottom
+    reserve (the bar's height plus 20 DIPs), and bottom subtitles glide above it.
+    - libass's line position (mpv's `sub-pos`) moves only plain bottom-aligned events, so signs
+      placed with `\pos` and top lines stay put. `AssRenderer.LinePosition` mirrors libass's
+      `y2scr_sub`/`y2scr_top` so the lift is just what's needed.
+    - PGS images in the lower half shift together.
+    - `SubtitlePlayback` eases the reserve, matching the controls' 0.2 s fade.
+    - mpv gets an approximate `sub-pos`, eased on the 50 ms tick.
+  - **Colours:** Settings → Subtitles sets text and outline colours for plain text (SRT, WebVTT) in
+    both engines: the converted style's colours here, `sub-color`/`sub-outline-color` in mpv.
+    Styled ASS keeps its own colours; PGS and VobSub are pictures.
   - Embedded MP4 subtitle tracks still go to mpv.
-  - `EngineSpike --sub-test <folder> [--sub-track N] [--start S] <mkv>` lists a file's subtitle
-    tracks and their index coverage, then renders each around `--start` to PNGs plus a report.
-    Given a .srt/.vtt/.ass/.ssa file instead, it renders that file's first cues from `--start`.
+  - `EngineSpike --sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <mkv>` lists a
+    file's subtitle tracks and their index coverage, then renders each around `--start` to PNGs
+    plus a report. Given a .srt/.vtt/.ass/.ssa file instead, it renders that file's first cues from
+    `--start`. `--sub-reserve` renders as if the controls took that many pixels at the bottom.
 - **Marquee's MKV reader** (`Matroska/`). Windows' own MKV source drops Dolby Vision and HDR
   attributes, and fails outright on DV profile 5. So Marquee demuxes Matroska itself and feeds
   Media Foundation through a `MediaStreamSource`:
@@ -339,8 +351,8 @@ spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.e
   path. Other modes:
   - `--extract-track N --start S --seconds D --out f.thd <mkv>` writes raw packets, for example a
     TrueHD clip for truehdd.
-  - `--sub-test <folder> [--sub-track N] [--start S] <mkv or subtitle file>` renders subtitles to
-    PNGs.
+  - `--sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <mkv or subtitle file>`
+    renders subtitles to PNGs.
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
   - `--dv-info out.txt <mkv>` writes the Dolby Vision configuration and first RPU (e.g. P7 FEL vs
     MEL) and exits.

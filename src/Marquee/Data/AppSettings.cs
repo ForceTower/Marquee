@@ -43,6 +43,10 @@ public sealed class AppSettings
     public string PreferredSubtitleLanguage { get; set; } = "";
     public SubtitleMode Subtitles { get; set; } = SubtitleMode.ForcedOnly;
 
+    /// <summary>Plain-text subtitle colours, "#RRGGBB". ASS keeps its own styles; PGS and VobSub are pictures.</summary>
+    public string SubtitleColor { get; set; } = "#FFFFFF";
+    public string SubtitleOutlineColor { get; set; } = "#000000";
+
     public int AutoPlayNextSeconds { get; set; } = 10;
     public ResumeMode Resume { get; set; } = ResumeMode.Always;
     public bool CompactOnFocusLoss { get; set; }
