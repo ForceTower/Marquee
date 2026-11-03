@@ -2,7 +2,7 @@
     The toggle switch Windows Settings uses: the On/Off label left of the switch and the whole control
     right-aligned, so switches line up with the other controls at a card's right edge. Adapted from
     the Windows Community Toolkit's RightAlignedCompactToggleSwitchStyle (MIT, .NET Foundation),
-    which is WinUI's default template with that layout.
+    which is WinUI's default template (MIT, Microsoft) with that layout. Notices: THIRD-PARTY-NOTICES.md.
 -->
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

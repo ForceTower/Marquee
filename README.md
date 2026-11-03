@@ -184,3 +184,9 @@ gets real heights.
 truehdd decodes the object layer at about 49× real time. On headphones the difference from the 7.1
 downmix is real but subtle, mostly height and vertical movement. The Atmos lab (`--atmos-lab`)
 A/Bs the two sample-locked and has a position test.
+
+## License
+
+Marquee is free software under the [GNU General Public License v3.0](LICENSE). Builds bundle
+third-party components under their own licenses, including a GPL build of libmpv and LGPL FFmpeg;
+see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
