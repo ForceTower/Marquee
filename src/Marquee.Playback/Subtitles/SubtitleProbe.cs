@@ -9,13 +9,19 @@ namespace Marquee.Playback.Subtitles;
 /// <summary>
 /// Headless check of the subtitle pipeline on a real file: lists the subtitle tracks, their index
 /// coverage and attached fonts, then reads each track around a time through the same source and
-/// renderer playback uses and saves what would be on screen as a PNG.
+/// renderer playback uses and saves what would be on screen as a PNG. A subtitle file (.srt, .vtt,
+/// .ass, .ssa) instead has its first cues from that time rendered over a 1080p video.
 /// </summary>
 internal static class SubtitleProbe
 {
     public static async Task<string> RunAsync(string location, string outputFolder, TimeSpan at, int? onlyTrack, int width = 1920, int height = 1080)
     {
         Directory.CreateDirectory(outputFolder);
+        if (SubtitleCodecs.FromName(Path.GetExtension(location).TrimStart('.')) is SubtitleCodec fileCodec)
+        {
+            return await RenderFileAsync(location, fileCodec, outputFolder, at, SubtitleLayout.Fit(width, height, 1920, 1080));
+        }
+
         var report = new StringBuilder();
         using var demuxer = MatroskaDemuxer.Open(location, 64 * 1024);
         var video = demuxer.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video);
@@ -126,6 +132,39 @@ internal static class SubtitleProbe
         if (shot == 0)
         {
             log.AppendLine("  nothing rendered");
+        }
+
+        return log.ToString().TrimEnd();
+    }
+
+    private static async Task<string> RenderFileAsync(string path, SubtitleCodec codec, string outputFolder, TimeSpan at, SubtitleLayout layout)
+    {
+        var log = new StringBuilder($"{path} ({codec})\n");
+        string text = TextSubtitles.Decode(await File.ReadAllBytesAsync(path));
+        List<SubtitlePacket> cues = codec == SubtitleCodec.Ass ? [] : TextSubtitles.ParseCues(text);
+        byte[]? header = codec == SubtitleCodec.Ass ? Encoding.UTF8.GetBytes(text) : null;
+        using var renderer = new AssRenderer(codec, header, [], 1920, 1080, message => log.AppendLine($"  libass: {message}"));
+        foreach (var cue in cues)
+        {
+            renderer.Add(cue);
+        }
+
+        var times = cues.Count > 0
+            ? cues.Where(c => c.TimeTicks + c.DurationTicks > at.Ticks).Take(6).Select(c => c.TimeTicks + c.DurationTicks / 2)
+            : Enumerable.Range(0, 6).Select(i => at.Ticks + i * TimeSpan.TicksPerSecond);
+        int shot = 0;
+        foreach (long time in times)
+        {
+            if (renderer.Render(time, layout, force: true) is not { Images.Count: > 0 } frame)
+            {
+                continue;
+            }
+
+            string file = Path.Combine(outputFolder, $"file-{shot++}-{TimeSpan.FromTicks(time):hhmmss}.png");
+            await SaveAsync(frame, layout, file);
+            var image = frame.Images[0];
+            log.AppendLine($"  {TimeSpan.FromTicks(time):hh\\:mm\\:ss\\.fff}: {image.Width}x{image.Height} at ({image.X:0},{image.Y:0}) → {file}");
+            frame.Release();
         }
 
         return log.ToString().TrimEnd();

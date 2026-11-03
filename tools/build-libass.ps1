@@ -1,8 +1,9 @@
 # Builds libass (ASS/SSA subtitle rendering for the Media Foundation engine) as a single x64 DLL with
-# meson + ninja + MSVC, and copies it to lib/libass/libass.dll. FreeType, FriBidi and HarfBuzz come
-# from pinned meson wraps and are linked in statically; system fonts come through DirectWrite (no
-# fontconfig). Python, uv, meson, ninja and nasm are pinned in mise.toml. Downloads, sources and the
-# build tree live in native/libass/ (gitignored).
+# meson + ninja + MSVC, and copies it to lib/libass/libass.dll. FreeType, FriBidi, HarfBuzz and
+# libunibreak (Unicode line breaking, so text without spaces wraps) come from pinned meson wraps and
+# are linked in statically; system fonts come through DirectWrite (no fontconfig). Python, uv, meson,
+# ninja and nasm are pinned in mise.toml. Downloads, sources and the build tree live in
+# native/libass/ (gitignored).
 $ErrorActionPreference = 'Stop'
 $version = '0.17.5'
 $sha256 = 'caab4b993dd7be6187c55623b789ed75dddefea6e65938af134637c732fe094a'
@@ -52,12 +53,27 @@ wrapdb_version = 13.0.1-1
 [provide]
 dependency_names = harfbuzz
 '@
+    libunibreak = @'
+[wrap-file]
+directory = libunibreak-6.1
+source_url = https://github.com/adah1972/libunibreak/releases/download/libunibreak_6_1/libunibreak-6.1.tar.gz
+source_filename = libunibreak-6.1.tar.gz
+source_hash = cc4de0099cf7ff05005ceabff4afed4c582a736abc38033e70fdac86335ce93f
+patch_filename = libunibreak_6.1-1_patch.zip
+patch_url = https://wrapdb.mesonbuild.com/v2/libunibreak_6.1-1/get_patch
+patch_hash = 830688953398bcb5ca8d88e619b0babbb31de95b31f47234adb0245bce95cf14
+source_fallback_url = https://github.com/mesonbuild/wrapdb/releases/download/libunibreak_6.1-1/libunibreak-6.1.tar.gz
+wrapdb_version = 6.1-1
+
+[provide]
+dependency_names = libunibreak
+'@
 }
 
 $options = @(
     '--buildtype=release', '-Db_ndebug=if-release', '--default-library=shared',
-    '--force-fallback-for=freetype2,fribidi,harfbuzz',
-    '-Ddirectwrite=enabled', '-Dfontconfig=disabled', '-Dcoretext=disabled', '-Dlibunibreak=disabled',
+    '--force-fallback-for=freetype2,fribidi,harfbuzz,libunibreak',
+    '-Ddirectwrite=enabled', '-Dfontconfig=disabled', '-Dcoretext=disabled', '-Dlibunibreak=enabled',
     '-Dasm=enabled',
     '-Dtest=disabled', '-Dcompare=disabled', '-Dprofile=disabled', '-Dfuzz=disabled', '-Dcheckasm=disabled',
     '-Dfreetype2:default_library=static', '-Dfreetype2:zlib=internal', '-Dfreetype2:bzip2=disabled',
@@ -68,7 +84,8 @@ $options = @(
     '-Dharfbuzz:cairo=disabled', '-Dharfbuzz:chafa=disabled', '-Dharfbuzz:icu=disabled',
     '-Dharfbuzz:freetype=disabled', '-Dharfbuzz:raster=disabled', '-Dharfbuzz:vector=disabled',
     '-Dharfbuzz:subset=disabled', '-Dharfbuzz:tests=disabled', '-Dharfbuzz:introspection=disabled',
-    '-Dharfbuzz:docs=disabled', '-Dharfbuzz:utilities=disabled'
+    '-Dharfbuzz:docs=disabled', '-Dharfbuzz:utilities=disabled',
+    '-Dlibunibreak:default_library=static'
 )
 
 New-Item -ItemType Directory -Force $work | Out-Null
@@ -127,5 +144,5 @@ $dll = Get-ChildItem (Join-Path $build 'libass') -Filter '*.dll' | Select-Object
 if (-not $dll) { throw "No DLL was built in $build\libass" }
 New-Item -ItemType Directory -Force $lib | Out-Null
 Copy-Item $dll.FullName (Join-Path $lib 'libass.dll') -Force
-Set-Content (Join-Path $lib 'libass.version') "libass $version (FreeType 2.15.0, FriBidi 1.0.18, HarfBuzz 13.0.1)"
+Set-Content (Join-Path $lib 'libass.version') "libass $version (FreeType 2.15.0, FriBidi 1.0.18, HarfBuzz 13.0.1, libunibreak 6.1)"
 Write-Host "$($dll.Name) -> $lib\libass.dll ($([math]::Round($dll.Length / 1MB, 2)) MB)"

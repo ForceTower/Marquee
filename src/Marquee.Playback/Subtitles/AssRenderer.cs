@@ -62,7 +62,10 @@ internal sealed unsafe class AssRenderer : ISubtitleRenderer
         }
         else
         {
+            // Unicode line breaking (libunibreak) wraps text without spaces, such as Japanese and
+            // Chinese. ASS scripts keep VSFilter's breaking at spaces, which they're authored for.
             LibAss.ProcessCodecPrivate(_track, TextSubtitles.Header);
+            LibAss.ass_track_set_feature(_track, LibAss.Feature.WrapUnicode, 1);
         }
     }
 

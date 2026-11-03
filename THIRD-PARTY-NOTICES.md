@@ -66,6 +66,7 @@ Cargo and NuGet fetch them, each under its own license.
 | FreeType | FreeType License or GPL-2.0-or-later (dual), plus its bundled zlib (Zlib); statically linked into `libass.dll` | https://freetype.org |
 | FriBidi | LGPL-2.1-or-later (statically linked into `libass.dll`) | https://github.com/fribidi/fribidi |
 | HarfBuzz | MIT ("Old MIT"; statically linked into `libass.dll`) | https://github.com/harfbuzz/harfbuzz |
+| libunibreak | Zlib (statically linked into `libass.dll`) | https://github.com/adah1972/libunibreak |
 | FFmpeg.AutoGen | MIT | https://github.com/Ruslan-B/FFmpeg.AutoGen |
 | Microsoft.Data.Sqlite | MIT | https://github.com/dotnet/efcore |
 | System.Security.Cryptography.ProtectedData | MIT | https://github.com/dotnet/runtime |

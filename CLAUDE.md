@@ -141,10 +141,12 @@ Next:
 - **libass** 0.17.5 renders ASS/SSA subtitles (and SRT converted to ASS) for the Media Foundation
   engine. It's separate from the libass inside libmpv.
   - `tools/build-libass.ps1` builds one `lib/libass/libass.dll` with meson + MSVC. FreeType,
-    FriBidi and HarfBuzz are pinned meson wraps, linked in statically.
+    FriBidi, HarfBuzz and libunibreak are pinned meson wraps, linked in statically.
   - Fonts come from the DirectWrite provider (no fontconfig); the assembly is on (nasm).
-  - It's built without iconv and libunibreak, so input must be UTF-8 and
-    `ASS_FEATURE_WRAP_UNICODE` is unavailable.
+  - libunibreak provides `ASS_FEATURE_WRAP_UNICODE` (Unicode line breaking). It's on for converted
+    text, so Japanese and Chinese lines without spaces wrap. ASS scripts keep VSFilter's breaking
+    at spaces, which they're authored for.
+  - It's built without iconv, so input must be UTF-8.
   - P/Invoke lives in `Subtitles/LibAss.cs`.
 - **Subtitles for Media Foundation** (`Marquee.Playback/Subtitles/`, `Player/SubtitleOverlay`).
   This is mpv's approach without mpv's code:
@@ -175,6 +177,7 @@ Next:
   - Embedded MP4 subtitle tracks still go to mpv.
   - `EngineSpike --sub-test <folder> [--sub-track N] [--start S] <mkv>` lists a file's subtitle
     tracks and their index coverage, then renders each around `--start` to PNGs plus a report.
+    Given a .srt/.vtt/.ass/.ssa file instead, it renders that file's first cues from `--start`.
 - **Marquee's MKV reader** (`Matroska/`). Windows' own MKV source drops Dolby Vision and HDR
   attributes, and fails outright on DV profile 5. So Marquee demuxes Matroska itself and feeds
   Media Foundation through a `MediaStreamSource`:
@@ -336,7 +339,8 @@ spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.e
   path. Other modes:
   - `--extract-track N --start S --seconds D --out f.thd <mkv>` writes raw packets, for example a
     TrueHD clip for truehdd.
-  - `--sub-test <folder> [--sub-track N] [--start S] <mkv>` renders subtitle tracks to PNGs.
+  - `--sub-test <folder> [--sub-track N] [--start S] <mkv or subtitle file>` renders subtitles to
+    PNGs.
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
   - `--dv-info out.txt <mkv>` writes the Dolby Vision configuration and first RPU (e.g. P7 FEL vs
     MEL) and exits.
