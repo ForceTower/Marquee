@@ -51,6 +51,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     private MpvEngine? _mpv;
     private MediaFoundationEngine? _mf;
     private SubtitleOverlay? _subtitleOverlay;
+    private readonly DisplayMatcher _display = new();
     private OverlayWindow? _overlay;
     private PlayerControls? _overlayControls;
     private PlaybackRequest? _request;
@@ -171,10 +172,35 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             ShowMessage("No audio output, so this plays without sound.");
         }
 
+        await MatchDisplayAsync(request);
         await OpenEngineAsync(plan.Engine, request);
         if (plan.Note is { } note)
         {
             ShowMessage(note);
+        }
+    }
+
+    /// <summary>Switches HDR and the refresh rate to suit the video (per Settings) before it starts.</summary>
+    private async Task MatchDisplayAsync(PlaybackRequest request)
+    {
+        if (_settings.MatchDynamicRange == DynamicRangeMatching.Off && !_settings.MatchFrameRate)
+        {
+            return;
+        }
+
+        _engine?.Pause();
+        _vm.IsBuffering = true;
+        var (hdr, frameRate) = await DisplayMatcher.DescribeVideoAsync(request, _settings.MatchFrameRate);
+        await _display.ApplyAsync(_hwnd, hdr, frameRate, _settings);
+    }
+
+    /// <summary>Closes the player, if it's open, and waits for the display to be put back: the app is exiting.</summary>
+    public static void CloseForExit()
+    {
+        if (s_instance is { } player)
+        {
+            player.Close();
+            player._display.WaitForIdle();
         }
     }
 
@@ -344,7 +370,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
         if (_vm.ShowStatistics && _ticks % 20 == 0)
         {
-            _vm.Statistics = string.Join("\n", engine.Statistics());
+            _vm.Statistics = string.Join("\n", engine.Statistics().Append(_display.Status).OfType<string>());
         }
     }
 
@@ -1070,7 +1096,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         _vm.ShowStatistics = !_vm.ShowStatistics;
         if (_vm.ShowStatistics && _engine is { } engine)
         {
-            _vm.Statistics = string.Join("\n", engine.Statistics());
+            _vm.Statistics = string.Join("\n", engine.Statistics().Append(_display.Status).OfType<string>());
         }
     }
 
@@ -1120,6 +1146,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         _mpv = null;
         _engine = null;
         _request = null;
+        _display.Restore();
         App.Window.HidePlayerLayer();
         App.Services.Db.NotifyChanged();
     }

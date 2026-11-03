@@ -75,11 +75,15 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
     - Timing is right, including after seeks.
     - The display stays in real Dolby Vision mode with subtitles showing.
     - Bottom lines glide above the controls and back.
+- **Display handling** (2026-11-03): Windows HDR follows the video and the refresh rate matches the
+  frame rate, then both are put back.
+  - Tested in the app: 23.976 fps went to 119.88 Hz and back; with HDR off, Dolby Vision video
+    turned it on and closing turned it off.
+  - Also tested killing the app mid-playback.
 
 Next:
 
 1. Matroska chapters in the MKV reader (chapters currently come from Plex or mpv).
-2. Display handling: HDR on/off and refresh-rate matching.
 
 ## The app (`src/Marquee`)
 
@@ -115,6 +119,24 @@ Next:
   scrobbles at 90 % or the final credits, shows skip-intro/credits from markers and counts down
   to the next episode. The user's star rating (`RatingControl`, Plex's 0–10 `userRating`) syncs
   through `/:/rate`; local items keep theirs across rescans.
+- **Display matching** (`Player/DisplayMatcher`, `Interop/DisplayControl`), per Settings →
+  Playback → Display. It runs before the engine opens and undoes everything when the player closes,
+  including when the window closes.
+  - **Dynamic range:** off, HDR video turns HDR on (the default), or match each video (also off for
+    SDR). HDR is from the library's stream info (DV profile, PQ/HLG transfer).
+  - **Frame rate** (off by default): the highest offered refresh rate that's a whole multiple of the
+    MKV's frame rate (its DefaultDuration), unless the current one already is.
+    - On a 240 Hz monitor: 23.976/29.97/59.94 fps → 119.88 Hz, 25/50 → 100 Hz, and 24/30/60 stay.
+  - **Interop:**
+    - HDR uses DisplayConfig: device info 15/16 (Windows 11 24H2 HDR state), else 9/10.
+    - Refresh rates use the legacy mode API with CDS_FULLSCREEN, as Kodi does. Nothing is saved, and
+      restoring means returning to the saved mode.
+    - Windows lists integer rates; one below a multiple of 6 (23, 29, 59, 119) is the NTSC
+      ×1000/1001 rate.
+  - **Crash safety:** a `display-restore` marker in `meta` covers a crash. Windows reverts a
+    CDS_FULLSCREEN mode when the process dies anyway; HDR stays changed, and the next start puts it
+    back.
+  - The statistics overlay shows the display line.
 - **Controls over mpv:** XAML can't draw over mpv's child HWND, so the controls live in
   `Player/OverlayWindow`: a borderless, owned, non-activating top-level window kept over the video,
   hosting a second `PlayerControls` bound to the same view model. Over Media Foundation the
@@ -307,7 +329,8 @@ src/Marquee.Playback/     Engine library shared by the app and the spike
   MediaFoundation/        MF diagnostics, the Atmos probe, the presentation clock
   Matroska/               Marquee's MKV demuxer and MediaStreamSource
   IO/                     File/URL opening, HttpRangeStream for Plex direct play
-  Interop/                Win32 child window that hosts mpv; Store codec runtime preload
+  Interop/                Win32 child window that hosts mpv; Store codec runtime preload; display
+                          HDR state and refresh rate
   SpatialAudio/           Windows Spatial Sound output, TrueHD Atmos playback
   Subtitles/              libass and FFmpeg subtitle renderers, sources, the subtitle thread
 spike/EngineSpike/        WinUI 3 test harness: both engines, A/B, probes, Atmos lab
@@ -359,6 +382,11 @@ spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
   - `--dv-info out.txt <mkv>` writes the Dolby Vision configuration and first RPU (e.g. P7 FEL vs
     MEL) and exits.
+  - `--display-info out.txt` writes each monitor's HDR state, mode, offered rates and the rate each
+    common frame rate would get. It changes nothing.
+  - `--display-test out.txt` switches the primary monitor for 23.976 fps and back, then HDR off and
+    on, logging each step. The screen blanks a few times.
+  - `--set-hdr on|off` sets HDR on the primary monitor.
 - With `--mute`, TrueHD Atmos output is silent but still decodes and syncs, and the heartbeat logs
   sync error, rate, resyncs and underruns.
 - To see which codecs are really in use, list the running process's loaded modules
@@ -461,6 +489,9 @@ the media server's address, audio endpoint names. What the code assumes about an
 - KeyboardAccelerators on a root element show "Ctrl+F"-style tooltips everywhere; set
   `KeyboardAcceleratorPlacementMode="Hidden"`.
 - PowerShell unrolls a `byte[]` returned from a function into the pipeline; return `, $bytes`.
+- A struct with a `fixed char` buffer, passed to P/Invoke by `ref`, is marshalled as ANSI unless
+  the struct says `CharSet = CharSet.Unicode`. `GetMonitorInfoW` then returned a garbled device
+  name, so `DisplayControl` passes such structs by pointer.
 - Plex: full metadata JSON has keys differing only in case (`guid` and `Guid`), which PowerShell's
   `ConvertFrom-Json` rejects without `-AsHashtable`. `audienceRating` is Rotten Tomatoes' audience
   score out of 10. Audio streams flag Atmos in `profile` ("dolby truehd + dolby atmos") and

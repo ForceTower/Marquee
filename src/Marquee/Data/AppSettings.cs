@@ -22,6 +22,17 @@ public enum ResumeMode
     Never,
 }
 
+public enum DynamicRangeMatching
+{
+    Off,
+
+    /// <summary>HDR and Dolby Vision video turn Windows HDR on; other video leaves it as it was.</summary>
+    HdrVideo,
+
+    /// <summary>HDR on for HDR video and off for SDR video.</summary>
+    EveryVideo,
+}
+
 public sealed class AppSettings
 {
     public string Accent { get; set; } = "#F5B544";
@@ -32,6 +43,12 @@ public sealed class AppSettings
     public string HardwareDecoding { get; set; } = "auto-safe";
     public string ToneMapping { get; set; } = "auto";
     public bool LoadMpvConfig { get; set; } = true;
+
+    /// <summary>Switch the display's HDR to suit the video, and back when playback ends.</summary>
+    public DynamicRangeMatching MatchDynamicRange { get; set; } = DynamicRangeMatching.HdrVideo;
+
+    /// <summary>Switch the display to a refresh rate that's a whole multiple of the video's frame rate.</summary>
+    public bool MatchFrameRate { get; set; }
 
     /// <summary>Audio endpoint by name (GUIDs change when Windows re-enumerates devices); null follows Windows.</summary>
     public string? AudioDevice { get; set; }

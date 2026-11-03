@@ -76,6 +76,20 @@
                     </Grid>
                 </controls:SettingsCard>
 
+                <TextBlock Text="Display" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
+                <controls:SettingsCard Glyph="&#xE706;" Header="Match dynamic range"
+                                       Description="Switches Windows HDR on for HDR and Dolby Vision video, and back when playback ends. Match each video also switches it off for SDR video.">
+                    <ComboBox x:Name="DynamicRangeBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
+                        <ComboBoxItem Content="Off" Tag="Off" />
+                        <ComboBoxItem Content="HDR video turns HDR on" Tag="HdrVideo" />
+                        <ComboBoxItem Content="Match each video" Tag="EveryVideo" />
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Glyph="&#xE7F4;" Header="Match frame rate"
+                                       Description="Switches the display to a refresh rate that's a whole multiple of the video's frame rate (say 119.88 Hz for 23.976 fps film on a 240 Hz monitor), and back when playback ends. The screen goes dark for a moment each time.">
+                    <ToggleSwitch x:Name="FrameRateSwitch" Style="{StaticResource SettingsToggleSwitchStyle}" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+
                 <TextBlock Text="Audio" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
                 <controls:SettingsCard Glyph="&#xE767;" Header="Output device" Description="Follows the Windows default unless you pick one. Chosen by name, so it survives Windows re-enumerating devices.">
                     <ComboBox x:Name="DeviceBox" Style="{StaticResource SettingsComboBoxStyle}" MaxWidth="320" SelectionChanged="Setting_Changed" />

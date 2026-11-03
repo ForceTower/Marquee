@@ -60,9 +60,11 @@ public partial class App : Application
         {
             Services = new AppServices();
             Log.Info($"Store codec runtime: {StoreCodecRuntime.Preload()}");
+            Player.DisplayMatcher.RestoreLeftovers();
             Theme.ApplyAccent(Services.Settings.Current.Accent);
 
             _window = new MainWindow();
+            _window.Closed += (_, _) => Log.Guard("Closing", Player.PlayerView.CloseForExit);
             _window.Activate();
         }
         catch (Exception ex)

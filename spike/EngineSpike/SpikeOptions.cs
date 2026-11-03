@@ -34,6 +34,15 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
     /// <summary>DV info mode: write the file's Dolby Vision configuration and first RPU to this path and exit.</summary>
     public string? DvInfoOutput { get; init; }
 
+    /// <summary>Display info mode: write each monitor's HDR state, mode, offered rates and frame-rate picks to this path and exit.</summary>
+    public string? DisplayInfoOutput { get; init; }
+
+    /// <summary>Display test mode: switch the window's monitor for 23.976 fps and back, then HDR off and back on, logging each step here.</summary>
+    public string? DisplayTestOutput { get; init; }
+
+    /// <summary>Set HDR on the primary monitor ("on" or "off") and exit.</summary>
+    public string? SetHdr { get; init; }
+
     /// <summary>Subtitle test mode: render each subtitle track around --start into PNGs in this folder, with a report, and exit.</summary>
     public string? SubtitleTestFolder { get; init; }
 
@@ -63,6 +72,9 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
         bool trueHdAtmos = false;
         string? dvInfoOutput = null;
         string? subtitleTestFolder = null;
+        string? displayInfoOutput = null;
+        string? displayTestOutput = null;
+        string? setHdr = null;
         int? subtitleTrack = null;
         int subtitleReserve = 0;
 
@@ -117,6 +129,15 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
                 case "--dv-info" when i + 1 < args.Length:
                     dvInfoOutput = args[++i];
                     break;
+                case "--display-info" when i + 1 < args.Length:
+                    displayInfoOutput = args[++i];
+                    break;
+                case "--display-test" when i + 1 < args.Length:
+                    displayTestOutput = args[++i];
+                    break;
+                case "--set-hdr" when i + 1 < args.Length:
+                    setHdr = args[++i];
+                    break;
                 case "--sub-test" when i + 1 < args.Length:
                     subtitleTestFolder = args[++i];
                     break;
@@ -153,6 +174,9 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
             Bed = bed,
             TrueHdAtmos = trueHdAtmos,
             DvInfoOutput = dvInfoOutput,
+            DisplayInfoOutput = displayInfoOutput,
+            DisplayTestOutput = displayTestOutput,
+            SetHdr = setHdr,
             SubtitleTestFolder = subtitleTestFolder,
             SubtitleTrack = subtitleTrack,
             SubtitleReserve = subtitleReserve,

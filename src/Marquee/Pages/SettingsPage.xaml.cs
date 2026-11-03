@@ -33,6 +33,8 @@ public sealed partial class SettingsPage : Page
         Select(HwdecBox, S.HardwareDecoding);
         Select(ToneMapBox, S.ToneMapping);
         MpvConfigSwitch.IsOn = S.LoadMpvConfig;
+        Select(DynamicRangeBox, S.MatchDynamicRange.ToString());
+        FrameRateSwitch.IsOn = S.MatchFrameRate;
         ObjectsSwitch.IsOn = S.TrueHdAtmosObjects;
         ExclusiveSwitch.IsOn = S.ExclusiveAudio;
         LipSyncBox.Value = S.AtmosLipSyncMs;
@@ -91,6 +93,8 @@ public sealed partial class SettingsPage : Page
             s.HardwareDecoding = TagOf(HwdecBox) ?? "auto-safe";
             s.ToneMapping = TagOf(ToneMapBox) ?? "auto";
             s.LoadMpvConfig = MpvConfigSwitch.IsOn;
+            s.MatchDynamicRange = Enum.Parse<DynamicRangeMatching>(TagOf(DynamicRangeBox) ?? nameof(DynamicRangeMatching.HdrVideo));
+            s.MatchFrameRate = FrameRateSwitch.IsOn;
             s.AudioDevice = TagOf(DeviceBox) is { Length: > 0 } device ? device : null;
             s.TrueHdAtmosObjects = ObjectsSwitch.IsOn;
             s.ExclusiveAudio = ExclusiveSwitch.IsOn;
