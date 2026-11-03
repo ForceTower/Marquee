@@ -52,6 +52,23 @@ public sealed partial class SettingsPage : Page
 
         await FillDevicesAsync();
         await FillComponentsAsync();
+        await ShowNvidiaOverlayAsync();
+    }
+
+    private async Task ShowNvidiaOverlayAsync()
+    {
+        bool? hookDisabled = await Task.Run(Player.NvidiaOverlay.IsHookDisabled);
+        NvidiaOverlayCard.Visibility = hookDisabled is null ? Visibility.Collapsed : Visibility.Visible;
+        NvidiaOverlayButton.Visibility = hookDisabled == true ? Visibility.Collapsed : Visibility.Visible;
+        NvidiaOverlayDone.Visibility = hookDisabled == true ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void NvidiaOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        NvidiaOverlayButton.IsEnabled = false;
+        await Player.NvidiaOverlay.DisableHookElevatedAsync();
+        await ShowNvidiaOverlayAsync();
+        NvidiaOverlayButton.IsEnabled = true;
     }
 
     private static void Select(ComboBox box, string tag) =>
@@ -118,13 +135,9 @@ public sealed partial class SettingsPage : Page
             bool selected = string.Equals(accent, S.Accent, StringComparison.OrdinalIgnoreCase);
             var swatch = new Button
             {
-                Width = 36,
-                Height = 36,
-                Padding = new Thickness(0),
-                CornerRadius = new CornerRadius(18),
+                Style = (Style)Application.Current.Resources["AccentSwatchStyle"],
                 Background = new SolidColorBrush(Theme.Parse(accent)),
                 BorderThickness = new Thickness(selected ? 3 : 0),
-                BorderBrush = (Brush)Application.Current.Resources["TextPrimaryBrush"],
             };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(swatch, $"Accent {accent}");
             swatch.Click += (_, _) =>

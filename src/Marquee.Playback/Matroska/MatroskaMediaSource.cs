@@ -7,7 +7,7 @@ namespace Marquee.Playback.Matroska;
 /// <summary>
 /// Feeds a Matroska file to Media Foundation through a MediaStreamSource, setting the attributes
 /// Windows' own MP4 source sets and its MKV source doesn't: the Dolby Vision renderer-extension
-/// profile and RPU forwarding, plus HDR colour metadata. Audio is passed through compressed so
+/// profile and RPU forwarding, plus HDR color metadata. Audio is passed through compressed so
 /// Windows' Dolby decoder (and its Atmos object output) does the decoding.
 /// </summary>
 internal sealed class MatroskaMediaSource
@@ -248,7 +248,7 @@ internal sealed class MatroskaMediaSource
         SetIfPresent(properties, MF_MT_MAX_MASTERING_LUMINANCE, c?.MasteringMax is double max ? (uint)Math.Round(max) : null);
         SetIfPresent(properties, MF_MT_MIN_MASTERING_LUMINANCE, c?.MasteringMin is double min ? (uint)Math.Round(min * 10000) : null);
 
-        Description.Add($"colour (Matroska codes): transfer {c?.Transfer?.ToString() ?? "—"}, primaries {c?.Primaries?.ToString() ?? "—"}, " +
+        Description.Add($"color (Matroska codes): transfer {c?.Transfer?.ToString() ?? "—"}, primaries {c?.Primaries?.ToString() ?? "—"}, " +
                         $"matrix {c?.Matrix?.ToString() ?? "—"}, range {c?.Range?.ToString() ?? "—"}, MaxCLL {c?.MaxCll?.ToString() ?? "—"}, " +
                         $"mastering {c?.MasteringMin?.ToString("0.####") ?? "—"}–{c?.MasteringMax?.ToString("0") ?? "—"} nits");
     }

@@ -50,6 +50,11 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (Environment.GetCommandLineArgs().Contains(Player.NvidiaOverlay.HelperArgument))
+        {
+            Environment.Exit(Player.NvidiaOverlay.DisableHook());
+        }
+
         Log.Info($"Marquee {Plex.PlexClientIdentity.Version} starting");
         try
         {

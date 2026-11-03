@@ -143,4 +143,45 @@
         <Setter Property="MinWidth" Value="200" />
         <Setter Property="CornerRadius" Value="4" />
     </Style>
+
+    <!-- An accent color swatch: the color stays put on hover (a plain button repaints it gray) and a
+         ring appears around it instead. The selected one carries an inner ring via BorderThickness. -->
+    <Style x:Key="AccentSwatchStyle" TargetType="Button">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="BorderBrush" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualMargin" Value="-5" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="HoverRing.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="HoverRing.Opacity" Value="1" />
+                                        <Setter Target="Swatch.Opacity" Value="0.8" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled" />
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <Ellipse x:Name="HoverRing" Margin="-4" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Opacity="0" />
+                        <Ellipse x:Name="Swatch" Fill="{TemplateBinding Background}" />
+                        <Border CornerRadius="{TemplateBinding CornerRadius}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

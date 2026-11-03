@@ -10,7 +10,7 @@ internal static class ImageColors
 {
     private static readonly ConcurrentDictionary<string, Color?> Cache = new();
 
-    /// <summary>The image's average colour: a Fant-filtered decode down to a single pixel.</summary>
+    /// <summary>The image's average color: a Fant-filtered decode down to a single pixel.</summary>
     public static async Task<Color?> AverageAsync(string reference, int width, int height)
     {
         if (Cache.TryGetValue(reference, out var cached))

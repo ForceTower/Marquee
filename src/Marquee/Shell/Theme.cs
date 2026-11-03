@@ -49,7 +49,7 @@ internal static class Theme
 
     public static Color Accent => Application.Current.Resources["AccentColor"] is Color c ? c : Parse(Accents[0]);
 
-    /// <summary>A poster/backdrop placeholder: Plex's UltraBlur corner colours, darkened, or a stable colour from the title.</summary>
+    /// <summary>A poster/backdrop placeholder: Plex's UltraBlur corner colors, darkened, or a stable color from the title.</summary>
     public static Brush TintBrush(string? tint, string seed, double darken = 0.45)
     {
         var corners = tint?.Split(',');

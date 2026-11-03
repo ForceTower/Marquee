@@ -5,7 +5,7 @@
     xmlns:controls="using:Marquee.Controls">
 
     <ScrollViewer>
-        <StackPanel Padding="40,32,40,48" Spacing="28" MaxWidth="1040" HorizontalAlignment="Left">
+        <controls:PageColumn Padding="40,32,40,48" Spacing="28" MaxWidth="1040">
 
             <StackPanel Spacing="6">
                 <TextBlock Text="Sources" Style="{StaticResource PageTitleTextStyle}" />
@@ -78,6 +78,6 @@
                     <Button Content="TMDB settings" Click="TmdbSettings_Click" />
                 </controls:SettingsCard>
             </StackPanel>
-        </StackPanel>
+        </controls:PageColumn>
     </ScrollViewer>
 </Page>

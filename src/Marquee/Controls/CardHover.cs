@@ -10,7 +10,7 @@ namespace Marquee.Controls;
 
 /// <summary>
 /// Hover for library cards: the whole card (artwork and caption) lifts, and a soft glow in the
-/// artwork's own colour fades in behind it. The glow is a composition drop shadow cast by a
+/// artwork's own color fades in behind it. The glow is a composition drop shadow cast by a
 /// sprite hidden under the artwork, inset so its square corners never show past the rounded ones.
 /// </summary>
 internal sealed class CardHover
@@ -76,7 +76,7 @@ internal sealed class CardHover
         _shadow.StartAnimation(nameof(DropShadow.Opacity), animation);
     }
 
-    /// <summary>Edge colours are often muted; lift them so the glow reads as light, not as a dark smudge.</summary>
+    /// <summary>Edge colors are often muted; lift them so the glow reads as light, not as a dark smudge.</summary>
     private static Color Vivid(Color c)
     {
         double max = Math.Max(c.R, Math.Max(c.G, c.B));
@@ -89,7 +89,7 @@ internal sealed class CardHover
         return Color.FromArgb(255, (byte)Math.Min(255, c.R * scale), (byte)Math.Min(255, c.G * scale), (byte)Math.Min(255, c.B * scale));
     }
 
-    /// <summary>A card's glow colour: Plex's UltraBlur edge colours, else the artwork's average colour.</summary>
+    /// <summary>A card's glow color: Plex's UltraBlur edge colors, else the artwork's average color.</summary>
     public static async Task<Color?> ColorForAsync(string? tint, string? imageReference, int width, int height)
     {
         if (tint?.Split(',') is { Length: 4 } corners)

@@ -5,7 +5,7 @@
     xmlns:controls="using:Marquee.Controls">
 
     <ScrollViewer>
-        <StackPanel Padding="40,32,40,48" Spacing="24" MaxWidth="1040" HorizontalAlignment="Left">
+        <controls:PageColumn Padding="40,32,40,48" Spacing="24" MaxWidth="1040">
             <StackPanel Spacing="4">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="Settings" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}" />
@@ -26,7 +26,7 @@
 
             <!-- Appearance -->
             <StackPanel x:Name="AppearancePanel" Spacing="8" Visibility="Collapsed">
-                <controls:SettingsCard Glyph="&#xE790;" Header="Accent colour" Description="Used for the play button, progress, selection and highlights.">
+                <controls:SettingsCard Glyph="&#xE790;" Header="Accent color" Description="Used for the play button, progress, selection and highlights.">
                     <StackPanel x:Name="AccentSwatches" Orientation="Horizontal" Spacing="10" />
                 </controls:SettingsCard>
             </StackPanel>
@@ -44,7 +44,7 @@
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xE706;" Header="Real Dolby Vision"
                                        Description="Sends Dolby Vision to the display through Windows' Dolby Vision Extensions (profiles 5 and 8; profile 7 is converted to 8.1). Off, or with mpv, Dolby Vision is tone-mapped to HDR10.">
-                    <ToggleSwitch x:Name="DolbyVisionSwitch" Toggled="Setting_Changed" />
+                    <ToggleSwitch x:Name="DolbyVisionSwitch" Style="{StaticResource SettingsToggleSwitchStyle}" Toggled="Setting_Changed" />
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xE950;" Header="Hardware decoding (mpv)" Description="Uses the GPU for HEVC, AV1, VP9 and H.264, falling back to software when a profile isn't supported.">
                     <ComboBox x:Name="HwdecBox" Style="{StaticResource SettingsComboBoxStyle}" SelectionChanged="Setting_Changed">
@@ -65,7 +65,15 @@
                     </ComboBox>
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xE943;" Header="Use mpv.conf" Description="Also load %APPDATA%\mpv\mpv.conf (target-peak, shaders and so on). Marquee's own settings above take precedence.">
-                    <ToggleSwitch x:Name="MpvConfigSwitch" Toggled="Setting_Changed" />
+                    <ToggleSwitch x:Name="MpvConfigSwitch" Style="{StaticResource SettingsToggleSwitchStyle}" Toggled="Setting_Changed" />
+                </controls:SettingsCard>
+                <controls:SettingsCard x:Name="NvidiaOverlayCard" Glyph="&#xE7FC;" Header="NVIDIA overlay banner" Visibility="Collapsed"
+                                       Description="NVIDIA's overlay takes full-screen video for a game and shows &quot;Press Alt+Z&quot;. Keeping its hook out of Marquee stops that; Windows asks for administrator permission once.">
+                    <Grid>
+                        <Button x:Name="NvidiaOverlayButton" Content="Keep it out" Click="NvidiaOverlay_Click" />
+                        <TextBlock x:Name="NvidiaOverlayDone" Text="Kept out of Marquee" VerticalAlignment="Center" Visibility="Collapsed"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
                 </controls:SettingsCard>
 
                 <TextBlock Text="Audio" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
@@ -74,13 +82,13 @@
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xE7F5;" Header="TrueHD Atmos as objects"
                                        Description="Decodes TrueHD's Atmos object layer and renders each object through Windows Spatial Sound, for real height with Dolby Atmos for Headphones. Off, TrueHD plays as its 7.1 bed.">
-                    <ToggleSwitch x:Name="ObjectsSwitch" Toggled="Setting_Changed" />
+                    <ToggleSwitch x:Name="ObjectsSwitch" Style="{StaticResource SettingsToggleSwitchStyle}" Toggled="Setting_Changed" />
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xE916;" Header="Atmos lip-sync" Description="Default audio offset for TrueHD Atmos objects, in milliseconds. [ and ] adjust it during playback.">
                     <NumberBox x:Name="LipSyncBox" SpinButtonPlacementMode="Inline" SmallChange="10" LargeChange="50" MinWidth="160" ValueChanged="LipSync_ValueChanged" />
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xE9E9;" Header="Exclusive mode (mpv)" Description="Takes the device exclusively, bypassing the Windows mixer. Also bypasses spatial sound.">
-                    <ToggleSwitch x:Name="ExclusiveSwitch" Toggled="Setting_Changed" />
+                    <ToggleSwitch x:Name="ExclusiveSwitch" Style="{StaticResource SettingsToggleSwitchStyle}" Toggled="Setting_Changed" />
                 </controls:SettingsCard>
 
                 <TextBlock Text="Behavior" Style="{StaticResource GroupTitleTextStyle}" Margin="0,16,0,4" />
@@ -99,7 +107,7 @@
                     </ComboBox>
                 </controls:SettingsCard>
                 <controls:SettingsCard Glyph="&#xEE49;" Header="Picture in picture when the window loses focus" Description="Keeps playback in a small always-on-top window while you work.">
-                    <ToggleSwitch x:Name="CompactSwitch" Toggled="Setting_Changed" />
+                    <ToggleSwitch x:Name="CompactSwitch" Style="{StaticResource SettingsToggleSwitchStyle}" Toggled="Setting_Changed" />
                 </controls:SettingsCard>
             </StackPanel>
 
@@ -173,6 +181,6 @@
                 <TextBlock Text="Windows components" Style="{StaticResource GroupTitleTextStyle}" Margin="0,12,0,4" />
                 <StackPanel x:Name="ComponentList" Spacing="4" />
             </StackPanel>
-        </StackPanel>
+        </controls:PageColumn>
     </ScrollViewer>
 </Page>

@@ -68,7 +68,7 @@ with mpv's own log next to it.
 | | mpv | Media Foundation |
 |---|---|---|
 | DV P5 MKV (WEB-DL) | RPU applied → HDR10 PQ @ 1000 nits | **Fails**: `0xC00D3E8C` "format recognized but invalid" |
-| DV P8 MKV (WEB-DL) | RPU applied | Plays as plain HEVC: no DV codec string, no HDR colour attributes |
+| DV P8 MKV (WEB-DL) | RPU applied | Plays as plain HEVC: no DV codec string, no HDR color attributes |
 | DV P8 MP4 (WEB-DL) | RPU applied | Plays; exposes `dvhe.08`, the DV config record, PQ + BT.2020 |
 | DV P7 FEL MKV (UHD remux) | RPU applied to base layer | not tested |
 | DD+ Atmos | Decodes the 5.1 bed → 7.1 out, objects lost | Windows' Dolby decoder emits objects (probe below) |
@@ -91,7 +91,7 @@ reader doesn't (both in `mfapi.h`):
 - `MF_MT_FORWARD_CUSTOM_NALU = 62` makes the HEVC decoder pass the RPU (NAL unit type 62) downstream.
 
 The profile comes from the track's `dvcC`/`dvvC` block addition mapping. Video is converted from
-length-prefixed NAL units to Annex B, with parameter sets before keyframes. HDR colour and mastering
+length-prefixed NAL units to Annex B, with parameter sets before keyframes. HDR color and mastering
 metadata come from the Matroska `Colour` element. DD+/AC-3/AAC are passed through compressed so
 Windows' Dolby decoder does the decoding, Atmos objects included. The reader also handles lacing,
 header stripping, zlib, cues-based seeking and audio track switching. The "Use Windows' MKV reader"
