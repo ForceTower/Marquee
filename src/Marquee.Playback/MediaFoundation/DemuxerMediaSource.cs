@@ -640,7 +640,6 @@ internal sealed class DemuxerMediaSource
     private sealed class NalConverter
     {
         private static readonly byte[] StartCode = [0, 0, 0, 1];
-        private static readonly byte[] ShortStartCode = [0, 0, 1];
 
         /// <summary>The NAL unit length field's size in bytes, or 0 for Annex B input.</summary>
         private readonly int _lengthSize;
@@ -723,10 +722,10 @@ internal sealed class DemuxerMediaSource
         /// <summary>general_profile_idc (HEVC) or profile_idc (H.264) from the SPS among Annex B parameter sets, else 0.</summary>
         private static int AnnexBProfile(byte[] parameterSets, bool hevc)
         {
-            foreach (var unit in AnnexBUnits(parameterSets))
+            foreach (var unit in AnnexB.Units(parameterSets))
             {
                 var nal = unit.Span;
-                if (hevc && nal.Length > 3 && ((nal[0] >> 1) & 0x3F) == 33)
+                if (hevc && nal.Length > 3 && AnnexB.HevcType(nal) == 33)
                 {
                     return nal[3] & 0x1F;
                 }
@@ -740,7 +739,7 @@ internal sealed class DemuxerMediaSource
             return 0;
         }
 
-        private IEnumerable<ReadOnlyMemory<byte>> Units(byte[] data) => _lengthSize == 0 ? AnnexBUnits(data) : LengthPrefixedUnits(data);
+        private IEnumerable<ReadOnlyMemory<byte>> Units(byte[] data) => _lengthSize == 0 ? AnnexB.Units(data) : LengthPrefixedUnits(data);
 
         private List<ReadOnlyMemory<byte>> LengthPrefixedUnits(byte[] data)
         {
@@ -766,49 +765,13 @@ internal sealed class DemuxerMediaSource
             return units;
         }
 
-        /// <summary>The NAL units between start codes, without the zero bytes that may pad before the next one.</summary>
-        private static List<ReadOnlyMemory<byte>> AnnexBUnits(byte[] data)
-        {
-            var units = new List<ReadOnlyMemory<byte>>();
-            int start = -1;
-            int pos = 0;
-            while (pos < data.Length)
-            {
-                int found = data.AsSpan(pos).IndexOf(ShortStartCode);
-                int end = found < 0 ? data.Length : pos + found;
-                if (start >= 0)
-                {
-                    int last = end;
-                    while (last > start && data[last - 1] == 0)
-                    {
-                        last--;
-                    }
-
-                    if (last > start)
-                    {
-                        units.Add(data.AsMemory(start, last - start));
-                    }
-                }
-
-                if (found < 0)
-                {
-                    break;
-                }
-
-                start = pos = end + ShortStartCode.Length;
-            }
-
-            return units;
-        }
-
         public byte[] ToAnnexB(byte[] data, bool keyFrame)
         {
             var units = new List<ReadOnlyMemory<byte>>();
             bool hasParameterSets = false;
             foreach (var unit in Units(data))
             {
-                byte header = unit.Span[0];
-                int type = _hevc ? (header >> 1) & 0x3F : header & 0x1F;
+                int type = _hevc ? AnnexB.HevcType(unit.Span) : unit.Span[0] & 0x1F;
                 hasParameterSets |= _hevc ? type == 32 : type == 7;
                 if (_hevc && ConvertProfile7 && type == 63)
                 {

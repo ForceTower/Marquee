@@ -32,7 +32,7 @@ internal sealed class DisplayMatcher
     public static async Task<(bool Hdr, double FrameRate)> DescribeVideoAsync(PlaybackRequest request, bool needFrameRate)
     {
         var video = request.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
-        bool hdr = video?.DoviProfile is not null || video?.ColorTransfer is "smpte2084" or "arib-std-b67";
+        bool hdr = request.Streams.Any(s => s.Kind == StreamKind.Video && s.DoviProfile is not null) || video?.ColorTransfer is "smpte2084" or "arib-std-b67";
         if ((!needFrameRate && video is not null) || !Demuxer.IsMatroska(request.Location))
         {
             return (hdr, 0);

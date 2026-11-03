@@ -227,7 +227,7 @@ internal static class MediaLabels
             return null;
         }
 
-        if (video.DoviProfile is not null)
+        if (streams.Any(s => s.Kind == StreamKind.Video && s.DoviProfile is not null))
         {
             return "Dolby Vision";
         }

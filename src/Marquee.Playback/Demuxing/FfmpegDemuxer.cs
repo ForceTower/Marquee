@@ -15,10 +15,18 @@ namespace Marquee.Playback.Demuxing;
 /// <see cref="MediaTrack"/>): MP4 timed text becomes S_TEXT/UTF8, a PGS display set becomes one
 /// packet, and AAC from MPEG-TS stays ADTS, with no CodecPrivate. Times count from the file's
 /// start time, as FFmpeg-based players and Plex count them.
+///
+/// Blu-ray's dual-layer Dolby Vision carries the enhancement layer, and with it the RPU, on a
+/// stream of its own. Each base-layer access unit is held until the enhancement layer's for the
+/// same time has been read, and goes out with its RPU appended, as Matroska stores profile 7
+/// (without the enhancement layer, which Marquee drops anyway). The enhancement stream isn't
+/// listed as a track.
 /// </summary>
 internal sealed unsafe class FfmpegDemuxer : IDemuxer
 {
     private const int MaxQueuedInactivePackets = 400;
+    private const int MaxHeldBaseUnits = 16;
+    private const int MaxEarlyRpus = 64;
     private const int IoBufferSize = 64 * 1024;
     private const int EIO = 5;
     private static readonly AVRational TickBase = new() { num = 1, den = (int)TimeSpan.TicksPerSecond };
@@ -38,6 +46,12 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
     private readonly Dictionary<int, Action<MediaPacket>> _taps = new();
     private readonly Dictionary<int, long> _nextTicks = new();
     private readonly Dictionary<int, (long Ticks, MemoryStream Data)> _displaySets = new();
+    private readonly List<HeldBaseUnit> _held = [];
+    private readonly SortedDictionary<long, byte[]> _earlyRpus = new();
+    private readonly Queue<ReadPacket> _merged = new();
+    private int _baseLayer;
+    private int _enhancementLayer;
+    private long _enhancementDecodeTicks = long.MinValue;
     private AVFormatContext* _format;
     private AVIOContext* _io;
     private AVPacket* _packet;
@@ -47,6 +61,13 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
     private bool _disposed;
 
     private readonly record struct ReadPacket(MediaPacket Packet, long DecodeTicks);
+
+    /// <summary>A base-layer access unit waiting for its RPU from the enhancement layer.</summary>
+    private sealed class HeldBaseUnit(ReadPacket read)
+    {
+        public ReadPacket Read { get; } = read;
+        public byte[]? Rpu { get; set; }
+    }
 
     public string Container { get; private set; } = "";
     public IReadOnlyList<MediaTrack> Tracks => _tracks;
@@ -91,6 +112,7 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
             _originTicks = probeStreams && _format->start_time != ffmpeg.AV_NOPTS_VALUE ? _format->start_time * 10 : 0;
             Duration = _format->duration > 0 ? TimeSpan.FromTicks(_format->duration * 10) : TimeSpan.Zero;
             BuildTracks(readHdrMetadata: probeStreams);
+            PairDolbyVisionLayers();
         }
         catch
         {
@@ -156,6 +178,39 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
             {
                 track.Colour = Colour(track, p, readHdrMetadata);
             }
+        }
+    }
+
+    /// <summary>
+    /// libavformat groups a dual-layer Dolby Vision pair (the enhancement layer's DOVI descriptor
+    /// names the base layer's PID). The base layer takes over the profile 7 configuration, which
+    /// is what makes the media source convert it to 8.1.
+    /// </summary>
+    private void PairDolbyVisionLayers()
+    {
+        for (int g = 0; g < _format->nb_stream_groups; g++)
+        {
+            AVStreamGroup* group = _format->stream_groups[g];
+            if (group->type != AVStreamGroupParamsType.AV_STREAM_GROUP_PARAMS_DOLBY_VISION || group->nb_streams != 2)
+            {
+                continue;
+            }
+
+            var layers = new[] { group->streams[0]->index + 1, group->streams[1]->index + 1 }
+                .Select(number => _tracksByNumber.GetValueOrDefault(number))
+                .ToList();
+            var enhancement = layers.FirstOrDefault(t => t?.DolbyVision is { BlPresent: false });
+            var baseLayer = layers.FirstOrDefault(t => t is not null && t != enhancement && t.CodecId == "V_MPEGH/ISO/HEVC");
+            if (enhancement is null || baseLayer is null)
+            {
+                continue;
+            }
+
+            baseLayer.DolbyVision = enhancement.DolbyVision! with { BlPresent = true };
+            _tracks.Remove(enhancement);
+            _baseLayer = baseLayer.Number;
+            _enhancementLayer = enhancement.Number;
+            return;
         }
     }
 
@@ -311,6 +366,11 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
         {
             _queues.TryAdd(track, new Queue<MediaPacket>());
             Stream(track)->discard = AVDiscard.AVDISCARD_DEFAULT;
+            if (track == _baseLayer)
+            {
+                Stream(_enhancementLayer)->discard = AVDiscard.AVDISCARD_DEFAULT;
+            }
+
             SetActive(track, active);
         }
     }
@@ -554,6 +614,10 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
 
         _nextTicks.Clear();
         _displaySets.Clear();
+        _held.Clear();
+        _earlyRpus.Clear();
+        _merged.Clear();
+        _enhancementDecodeTicks = long.MinValue;
         _endOfFile = false;
     }
 
@@ -577,26 +641,125 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
     {
         while (true)
         {
+            if (_merged.TryDequeue(out var merged))
+            {
+                if (wanted(merged.Packet.Track))
+                {
+                    return merged;
+                }
+
+                continue;
+            }
+
             int result = ffmpeg.av_read_frame(_format, _packet);
             if (result < 0)
             {
                 ThrowIfIoFailed();
+                if (_held.Count > 0)
+                {
+                    ReleaseHeld(all: true);
+                    continue;
+                }
+
                 return null;
             }
 
+            ReadPacket? read = null;
+            int number = _packet->stream_index + 1;
             try
             {
-                int number = _packet->stream_index + 1;
-                if (wanted(number) && _tracksByNumber.TryGetValue(number, out var track) && Convert(track) is { } read)
+                bool layer = number == _enhancementLayer;
+                if ((layer || wanted(number)) && _tracksByNumber.TryGetValue(number, out var track))
                 {
-                    return read;
+                    read = Convert(track);
                 }
             }
             finally
             {
                 ffmpeg.av_packet_unref(_packet);
             }
+
+            if (read is not { } packet)
+            {
+                continue;
+            }
+
+            if (number == _enhancementLayer)
+            {
+                TakeRpu(packet);
+            }
+            else if (number == _baseLayer && Stream(_enhancementLayer)->discard != AVDiscard.AVDISCARD_ALL)
+            {
+                Hold(packet);
+            }
+            else
+            {
+                return packet;
+            }
         }
+    }
+
+    private void Hold(ReadPacket baseUnit)
+    {
+        var held = new HeldBaseUnit(baseUnit);
+        if (_earlyRpus.TryGetValue(baseUnit.Packet.TimeTicks, out byte[]? rpu))
+        {
+            _earlyRpus.Remove(baseUnit.Packet.TimeTicks);
+            held.Rpu = rpu;
+        }
+
+        _held.Add(held);
+        ReleaseHeld(all: false);
+    }
+
+    /// <summary>Takes the RPU (NAL unit type 62) out of an enhancement-layer access unit; the rest of the layer is dropped.</summary>
+    private void TakeRpu(ReadPacket enhancementUnit)
+    {
+        _enhancementDecodeTicks = Math.Max(_enhancementDecodeTicks, enhancementUnit.DecodeTicks);
+        var rpu = AnnexB.Units(enhancementUnit.Packet.Data).FirstOrDefault(unit => AnnexB.HevcType(unit.Span) == 62);
+        if (!rpu.IsEmpty)
+        {
+            long time = enhancementUnit.Packet.TimeTicks;
+            if (_held.Find(waiting => waiting.Rpu is null && waiting.Read.Packet.TimeTicks == time) is { } held)
+            {
+                held.Rpu = rpu.ToArray();
+            }
+            else
+            {
+                _earlyRpus[time] = rpu.ToArray();
+                if (_earlyRpus.Count > MaxEarlyRpus)
+                {
+                    _earlyRpus.Remove(_earlyRpus.Keys.First());
+                }
+            }
+        }
+
+        ReleaseHeld(all: false);
+    }
+
+    /// <summary>
+    /// Lets base-layer units go in decode order, each once it has its RPU, or once the enhancement
+    /// layer has gone past it in decode order without one (or too many wait: the layer stopped).
+    /// </summary>
+    private void ReleaseHeld(bool all)
+    {
+        while (_held.Count > 0)
+        {
+            var head = _held[0];
+            if (!all && head.Rpu is null && _enhancementDecodeTicks < head.Read.DecodeTicks && _held.Count <= MaxHeldBaseUnits)
+            {
+                return;
+            }
+
+            _held.RemoveAt(0);
+            _merged.Enqueue(head.Rpu is { } rpu ? WithRpu(head.Read, rpu) : head.Read);
+        }
+    }
+
+    private static ReadPacket WithRpu(ReadPacket baseUnit, byte[] rpu)
+    {
+        byte[] data = [.. baseUnit.Packet.Data, 0, 0, 0, 1, .. rpu];
+        return baseUnit with { Packet = baseUnit.Packet with { Data = data, FrameSizes = [data.Length] } };
     }
 
     private ReadPacket? Convert(MediaTrack track)

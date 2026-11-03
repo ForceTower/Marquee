@@ -97,7 +97,8 @@ internal static class PlaybackPlanner
             return (EngineMode.Mpv, null);
         }
 
-        bool dolbyVision = settings.DolbyVision && video?.DoviProfile is 5 or 7 or 8;
+        // On a dual-layer Blu-ray the Dolby Vision configuration is on the enhancement layer's stream.
+        bool dolbyVision = settings.DolbyVision && r.Streams.Any(s => s.Kind == StreamKind.Video && s.DoviProfile is 5 or 7 or 8);
         bool objects = r.PlayTrueHdAsObjects || audio is { Codec: "eac3", IsAtmos: true };
         bool dtsX = audio?.IsDtsX == true && StoreCodecRuntime.HasDtsDecoder;
         bool mfAdds = dolbyVision || objects || dtsX;

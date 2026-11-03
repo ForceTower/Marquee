@@ -145,7 +145,11 @@ everything above applies:
 - TrueHD Atmos objects.
 - PGS subtitles, collected from one PES per segment into display sets.
 
-Blu-ray discs that carry the Dolby Vision enhancement layer on a PID of its own play as HDR10.
+UHD Blu-ray discs carry dual-layer Dolby Vision: the enhancement layer, and with it each frame's
+RPU, is a 1080p HEVC stream on a PID of its own. libavformat groups the two layers. Marquee
+appends each enhancement access unit's RPU to the base-layer access unit with the same timestamp,
+which is how Matroska stores profile 7, and the 8.1 conversion takes it from there. mpv shows
+these discs as HDR10.
 
 MP4 stays with Windows' own source, which keeps Dolby Vision but doesn't hand over subtitle tracks.
 Marquee reads the chosen tx3g track through libavformat on its own, around the playing time. The
@@ -156,6 +160,7 @@ text and its italics go through the same libass path as SRT.
 | UHD M2TS, HDR10 + TrueHD Atmos + PGS | HDR10 metadata, **Atmos objects** in sync (by ear), PGS shown |
 | DV P8 MP4 WEB-DL with tx3g subtitles | **real Dolby Vision** with subtitles on |
 | DV P8 and P7 MEL clips remuxed to MPEG-TS | **real Dolby Vision**; P7 RPUs converted to 8.1 per frame |
+| P7 MEL split into a disc's dual-layer layout (EL + RPU on PID 0x1015) | **real Dolby Vision**; RPUs in every frame of the base layer |
 
 ### Dolby Vision profile 7
 

@@ -87,6 +87,9 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
   - MPEG-TS and Blu-ray M2TS are demuxed by libavformat into Marquee's `MediaStreamSource`:
     - HDR10 metadata.
     - Dolby Vision from the DOVI descriptor, P7 → 8.1 included.
+    - UHD Blu-ray's dual-layer Dolby Vision, with the enhancement layer and its RPUs on a PID of
+      their own: the RPUs are merged into the base layer, so it too plays as real Dolby Vision (8.1),
+      where mpv shows HDR10.
     - TrueHD Atmos objects.
     - PGS subtitles.
   - Confirmed by the user, one file at a time:
@@ -95,9 +98,10 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
     - A UHD M2TS in the app: TrueHD Atmos objects sound right, in sync.
     - DV P8 and P7 MEL clips remuxed from MKVs into MPEG-TS (with a DOVI descriptor), in the
       spike: Dolby Vision with a correct picture, the P7 one converted to 8.1 per frame.
+    - A dual-layer M2TS built from the P7 MEL clip the way discs carry it (the enhancement layer
+      unwrapped onto PID 0x1015 with the RPUs, a DOVI descriptor naming the base PID): Dolby
+      Vision with a correct picture. Not yet tried on a real disc's M2TS.
   - Also checked by rendering: tx3g italics, and PGS from the M2TS.
-  - Not handled: Blu-ray M2TS with the Dolby Vision enhancement layer on its own PID (dual-layer
-    discs). Those play as HDR10, as in mpv.
 
 Next:
 
@@ -263,6 +267,18 @@ Next:
     - MPEG-TS times count from the file's start time, as Plex and FFmpeg players count them.
     - MPEG-TS video stays Annex B, with Annex B parameter sets as its CodecPrivate.
     - Dolby Vision comes from the DOVI descriptor, through `AV_PKT_DATA_DOVI_CONF`.
+    - **Dual-layer Dolby Vision** (UHD Blu-ray M2TS): the enhancement layer is its own HEVC stream
+      (1080p, PID 0x1015 on discs), whose DOVI descriptor has no base layer and names the base
+      layer's PID.
+      - libavformat 9 groups the pair (`AV_STREAM_GROUP_PARAMS_DOLBY_VISION`). The base layer takes
+        over the profile 7 configuration, and the enhancement stream isn't listed as a track.
+      - Each base access unit waits until the enhancement unit with the same PTS has been read,
+        then goes out with that unit's RPU (NAL type 62) appended, as Matroska stores P7. The rest
+        of the enhancement layer is dropped, as the 8.1 conversion would drop it anyway.
+      - A base unit goes without an RPU once the enhancement layer is past it in decode order, or
+        after 16 are waiting.
+      - The enhancement stream is read only while the base layer is exposed, so the TrueHD Atmos
+        reader doesn't buffer it.
     - HDR10's static metadata is only in the stream's SEI, so one keyframe is decoded for it.
     - A PGS display set, one PES per segment in MPEG-TS, is collected into one packet.
     - Seeking searches timestamps, then reads forward to the last keyframe at or before the
@@ -283,7 +299,8 @@ Next:
       layers.
     - MEL loses nothing. FEL loses the enhancement layer's residual precision, as on any player
       without FEL support.
-    - `--dv-info out.txt <mkv>` reports a file's first RPU, e.g. `7 FEL`.
+    - `--dv-info out.txt <video>` reports a file's first RPU, e.g. `7 FEL`, and how many of the
+      first 500 frames carry one.
   - Audio: DD+, AC-3 and AAC pass through compressed, so Windows' Dolby decoder decodes them with
     objects intact.
   - **DTS** goes to DTS's own decoder when the user has **DTS Sound Unbound**. Its package
@@ -435,8 +452,9 @@ spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.
   - `--sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <video or subtitle file>`
     renders subtitles to PNGs (MKV, MP4 or MPEG-TS).
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
-  - `--dv-info out.txt <mkv>` writes the Dolby Vision configuration and first RPU (e.g. P7 FEL vs
-    MEL) and exits.
+  - `--dv-info out.txt <video>` writes the Dolby Vision configuration, the first RPU (e.g. P7 FEL
+    vs MEL) and how many of the first 500 frames carry an RPU, and exits. On a dual-layer M2TS
+    that shows the enhancement layer's RPUs reaching the base layer.
   - `--display-info out.txt` writes each monitor's HDR state, mode, offered rates and the rate each
     common frame rate would get. It changes nothing.
   - `--display-test out.txt` switches the primary monitor for 23.976 fps and back, then HDR off and
