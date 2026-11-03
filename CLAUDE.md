@@ -89,13 +89,13 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
     - Dolby Vision from the DOVI descriptor, P7 → 8.1 included.
     - TrueHD Atmos objects.
     - PGS subtitles.
-  - Checked in the app:
-    - tx3g subtitles (italics included) over a DV P8 MP4 WEB-DL.
-    - A UHD M2TS with TrueHD Atmos objects (about 1 ms sync) and PGS.
-  - DV in MPEG-TS was checked with clips remuxed from DV P8 and P7 MKVs: the Dolby Vision plugin
-    loads and RPUs convert.
-  - The user saw the monitor's Dolby Vision logo during the test runs, which included the DV MP4
-    with subtitles and those MPEG-TS clips.
+  - Confirmed by the user, one file at a time:
+    - A DV P8 MP4 WEB-DL in the app: the display shows Dolby Vision, and the embedded tx3g
+      subtitles are in time.
+    - A UHD M2TS in the app: TrueHD Atmos objects sound right, in sync.
+    - DV P8 and P7 MEL clips remuxed from MKVs into MPEG-TS (with a DOVI descriptor), in the
+      spike: Dolby Vision with a correct picture, the P7 one converted to 8.1 per frame.
+  - Also checked by rendering: tx3g italics, and PGS from the M2TS.
   - Not handled: Blu-ray M2TS with the Dolby Vision enhancement layer on its own PID (dual-layer
     discs). Those play as HDR10, as in mpv.
 

@@ -153,9 +153,9 @@ text and its italics go through the same libass path as SRT.
 
 | Through Media Foundation | Result |
 |---|---|
-| UHD M2TS, HDR10 + TrueHD Atmos + PGS | HDR10 metadata, objects about 1 ms in sync, PGS shown |
-| DV P8 MP4 WEB-DL with tx3g subtitles | real Dolby Vision path with subtitles on |
-| DV P8 and P7 clips remuxed to MPEG-TS | Dolby Vision plugin loads; P7 RPUs convert to 8.1 |
+| UHD M2TS, HDR10 + TrueHD Atmos + PGS | HDR10 metadata, **Atmos objects** in sync (by ear), PGS shown |
+| DV P8 MP4 WEB-DL with tx3g subtitles | **real Dolby Vision** with subtitles on |
+| DV P8 and P7 MEL clips remuxed to MPEG-TS | **real Dolby Vision**; P7 RPUs converted to 8.1 per frame |
 
 ### Dolby Vision profile 7
 
