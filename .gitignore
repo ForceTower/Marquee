@@ -4,6 +4,9 @@ obj/
 *.user
 lib/
 native/**/target/
+artifacts/
+*.pfx
+*.cer
 
 # Personal: machine/network details and real test file paths
 CLAUDE.local.md

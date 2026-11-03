@@ -36,6 +36,23 @@ dotnet build src/Marquee -p:Platform=x64
 src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
 ```
 
+### Installing
+
+`tools/install.ps1` publishes a self-contained Release, signs it and installs it for the current
+user: `%LOCALAPPDATA%\Programs\Marquee`, a Start menu shortcut and an entry in Settings → Apps that
+uninstalls it. No administrator rights; run it again to update. The library and settings live in
+`%LOCALAPPDATA%\Marquee` and survive updates and uninstalls.
+
+Signing is optional. `tools/new-signing-cert.ps1` creates a self-signed code-signing certificate
+once: the private key stays in your user store and can't be exported, and the public certificate is
+trusted on this PC (one UAC prompt), so Windows shows the signature as valid and elevation prompts
+show a verified publisher. Without it, the install is unsigned.
+
+```powershell
+./tools/new-signing-cert.ps1   # once
+./tools/install.ps1
+```
+
 ## Engine spike
 
 `spike/EngineSpike` is a throwaway WinUI 3 harness that plays a file through either engine in the

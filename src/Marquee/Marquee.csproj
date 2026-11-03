@@ -14,6 +14,8 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Without it, publishing leaves out Marquee.pri and the compiled XAML, and the app can't load its own resources. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
