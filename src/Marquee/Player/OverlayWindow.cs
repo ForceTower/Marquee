@@ -86,6 +86,12 @@ internal sealed class OverlayWindow : Window
     public void Hide() => ShowWindow(_hwnd, SW_HIDE);
 
     /// <summary>
+    /// The window can't be activated by a click, but XAML focusing what's clicked (or a menu opening)
+    /// activates it all the same, and the keyboard follows.
+    /// </summary>
+    public bool IsForeground => GetForegroundWindow() == _hwnd;
+
+    /// <summary>
     /// No non-client area, whatever the style says. The presenter puts a dialog frame (WS_DLGFRAME)
     /// back after the styles above are stripped, which shrank the client area and drew a white
     /// 3-pixel border around the video.
@@ -137,6 +143,9 @@ internal sealed class OverlayWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hwnd, int cmd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);

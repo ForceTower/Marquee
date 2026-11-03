@@ -68,7 +68,9 @@ public sealed partial class PlayerControls : UserControl
     /// shouldn't auto-hide. Skimming doesn't count in the mini player, whose controls hide when the
     /// pointer leaves it: that's polled, because the pointer's exit can be lost between its windows.
     /// </summary>
-    public bool IsBusy => _dragging || _openFlyouts > 0 || PreviewCard.Visibility == Visibility.Visible && !ViewModel.IsCompact;
+    public bool IsBusy => _dragging || HasOpenFlyout || PreviewCard.Visibility == Visibility.Visible && !ViewModel.IsCompact;
+
+    public bool HasOpenFlyout => _openFlyouts > 0;
 
     /// <summary>The bottom bar's controls in DIPs, from the time row down (not the gradient fading in above it).</summary>
     public double BottomControlsHeight => ViewModel.IsCompact ? MiniBottom.ActualHeight : BottomBar.ActualHeight - BottomBar.Padding.Top;

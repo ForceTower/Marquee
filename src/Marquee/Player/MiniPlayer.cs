@@ -183,7 +183,7 @@ internal sealed class MiniPlayer
         }
     }
 
-    private static bool PrimaryButtonDown() =>
+    internal static bool PrimaryButtonDown() =>
         (GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) != 0 ? VK_RBUTTON : VK_LBUTTON) & 0x8000) != 0;
 
     /// <summary>Where it was last time, if that's still on a screen; else the bottom-right corner of this one.</summary>

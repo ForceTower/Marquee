@@ -590,6 +590,12 @@ the media server's address, audio endpoint names. What the code assumes about an
   `WS_DLGFRAME` back after the styles are stripped, which shrinks the client area and draws a
   white 3-pixel frame (it showed around mpv's video). `OverlayWindow` answers `WM_NCCALCSIZE` itself
   so there's no non-client area whatever the style says.
+- `WS_EX_NOACTIVATE` only stops a click from activating `OverlayWindow`. XAML focusing the pressed
+  button, or a menu opening, activates it all the same, and the keyboard goes with it. So the
+  overlay forwards keys to the player too, and `PlayerView.ReturnActivation` gives activation back
+  to the main window once the press is over and no menu is open. Keys pressed in a menu also tunnel
+  through the window root's `PreviewKeyDown`, so the player ignores keys from inside open popups;
+  otherwise Esc in a menu closed the player.
 - mpv's video window belongs to mpv's thread: `ShowCursor` from the UI thread doesn't hide the cursor
   over it; set mpv's `cursor-autohide` too.
 - XAML can't hide the cursor under a still pointer. WinUI sets cursors from its own input thread

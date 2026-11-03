@@ -361,6 +361,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         }
 
         engine.Tick();
+        ReturnActivation();
         if (++_ticks % 5 != 0)
         {
             return;
@@ -761,10 +762,25 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         {
             _overlayControls = new PlayerControls(_vm, this, _previews);
             _overlay = new OverlayWindow(_hwnd, _overlayControls);
+            _overlay.Content.AddHandler(PreviewKeyDownEvent, new KeyEventHandler((_, e) => HandleKey(e)), handledEventsToo: true);
         }
 
         PositionVideo();
         return _overlay;
+    }
+
+    /// <summary>
+    /// A click on the controls over mpv leaves their window active, so the main window shows as
+    /// inactive. Once the press is over, activation goes back, unless a menu is open (its boxes take
+    /// typing).
+    /// </summary>
+    private void ReturnActivation()
+    {
+        if (_overlay is { IsForeground: true } && _overlayControls?.HasOpenFlyout != true && !MiniPlayer.PrimaryButtonDown())
+        {
+            SetForegroundWindow(_hwnd);
+            Root.Focus(FocusState.Programmatic);
+        }
     }
 
     /// <summary>
@@ -846,11 +862,21 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated && _settings.CompactOnFocusLoss &&
-            _engine?.IsPlaying == true && !_vm.IsCompact && !_vm.IsFullScreen && _open)
+        if (args.WindowActivationState != WindowActivationState.Deactivated || !_settings.CompactOnFocusLoss)
         {
-            ToggleCompact();
+            return;
         }
+
+        // Activation passing to Marquee's own windows (the controls over mpv, a file picker) isn't
+        // leaving the app. Which window took it is known once this event has returned.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            GetWindowThreadProcessId(GetForegroundWindow(), out uint process);
+            if (process != Environment.ProcessId && _engine?.IsPlaying == true && !_vm.IsCompact && !_vm.IsFullScreen && _open)
+            {
+                ToggleCompact();
+            }
+        });
     }
 
     public void ToggleFullScreen()
@@ -1242,7 +1268,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     private void OnKey(KeyRoutedEventArgs e)
     {
-        if (e.OriginalSource is TextBox or NumberBox or AutoSuggestBox)
+        if (e.OriginalSource is TextBox or NumberBox or AutoSuggestBox || InPopup(e.OriginalSource as UIElement))
         {
             return;
         }
@@ -1327,6 +1353,29 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         e.Handled = true;
     }
 
+    /// <summary>
+    /// Keys pressed in a menu or a combo box's list belong to it, so Esc closes the menu rather than
+    /// the player. They tunnel through the window's root on the way there, like any other key.
+    /// </summary>
+    private static bool InPopup(UIElement? source)
+    {
+        if (source?.XamlRoot is not { } root)
+        {
+            return false;
+        }
+
+        var popups = VisualTreeHelper.GetOpenPopupsForXamlRoot(root);
+        for (DependencyObject? element = source; element is not null; element = VisualTreeHelper.GetParent(element))
+        {
+            if (popups.Any(p => p.Child == element))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void ShiftAudio(int milliseconds)
     {
         SetAudioDelay(_vm.AudioDelayMs + milliseconds);
@@ -1359,6 +1408,15 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
     private const uint GA_ROOT = 2;
     private const uint GW_OWNER = 4;
