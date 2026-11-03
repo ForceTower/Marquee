@@ -20,6 +20,7 @@ internal static class Ids
     public const uint TrackNumber = 0xD7;
     public const uint TrackType = 0x83;
     public const uint FlagDefault = 0x88;
+    public const uint FlagForced = 0x55AA;
     public const uint DefaultDuration = 0x23E383;
     public const uint Name = 0x536E;
     public const uint Language = 0x22B59C;
@@ -56,6 +57,13 @@ internal static class Ids
     public const uint CueTrackPositions = 0xB7;
     public const uint CueTrack = 0xF7;
     public const uint CueClusterPosition = 0xF1;
+    public const uint CueRelativePosition = 0xF0;
+    public const uint CueDuration = 0xB2;
+    public const uint Attachments = 0x1941A469;
+    public const uint AttachedFile = 0x61A7;
+    public const uint FileName = 0x466E;
+    public const uint FileMimeType = 0x4660;
+    public const uint FileData = 0x465C;
     public const uint Cluster = 0x1F43B675;
     public const uint Timestamp = 0xE7;
     public const uint SimpleBlock = 0xA3;

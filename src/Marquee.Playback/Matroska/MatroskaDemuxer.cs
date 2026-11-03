@@ -40,6 +40,7 @@ internal sealed class MatroskaTrack
     public string Language = "eng";
     public string? LanguageBcp47;
     public bool IsDefault = true;
+    public bool IsForced;
     public long DefaultDurationNs;
     public int Width;
     public int Height;
@@ -71,6 +72,15 @@ internal sealed record MatroskaPacket(int Track, long TimeTicks, long DurationTi
 }
 
 /// <summary>
+/// An index entry. Entries for subtitle blocks (mkvmerge writes one per block) also locate the block
+/// inside its cluster and give its duration, so a subtitle can be read without scanning the cluster.
+/// </summary>
+internal readonly record struct CuePoint(long TimeTicks, int Track, long ClusterPosition, long RelativePosition, long DurationTicks);
+
+/// <summary>A file attached to the segment, such as a font an ASS subtitle track uses.</summary>
+internal sealed record MatroskaAttachment(string Name, string? MimeType, byte[] Data);
+
+/// <summary>
 /// A minimal Matroska demuxer: track metadata, cues, and block reading with lacing and header
 /// stripping. Clusters are read as a flat element stream so unknown-size clusters work too.
 /// Thread-safe: Media Foundation requests audio and video samples from different threads.
@@ -83,15 +93,18 @@ internal sealed class MatroskaDemuxer : IDisposable
     private readonly object _gate = new();
     private readonly Dictionary<int, Queue<MatroskaPacket>> _queues = new();
     private readonly HashSet<int> _active = new();
+    private readonly Dictionary<int, Action<MatroskaPacket>> _taps = new();
+    private readonly Dictionary<long, long> _clusterDataStarts = new();
     private long _segmentStart;
     private long _segmentEnd;
     private long _firstCluster = -1;
+    private long _attachments = -1;
     private long _timestampScale = 1_000_000;
     private long _clusterTimestamp;
     private bool _endOfFile;
 
     public List<MatroskaTrack> Tracks { get; } = [];
-    public List<(long TimeTicks, int Track, long ClusterPosition)> Cues { get; } = [];
+    public List<CuePoint> Cues { get; } = [];
     public TimeSpan Duration { get; private set; }
 
     private MatroskaDemuxer(string path, int bufferSize)
@@ -146,6 +159,26 @@ internal sealed class MatroskaDemuxer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Hands packets of <paramref name="track"/> to <paramref name="sink"/> as reading for other
+    /// tracks passes them, instead of queuing them (null stops). The sink runs under the demuxer's
+    /// lock, so it must only store the packet.
+    /// </summary>
+    public void Tap(int track, Action<MatroskaPacket>? sink)
+    {
+        lock (_gate)
+        {
+            if (sink is null)
+            {
+                _taps.Remove(track);
+            }
+            else
+            {
+                _taps[track] = sink;
+            }
+        }
+    }
+
     public MatroskaPacket? Next(int track)
     {
         lock (_gate)
@@ -153,13 +186,17 @@ internal sealed class MatroskaDemuxer : IDisposable
             var queue = _queues[track];
             while (queue.Count == 0)
             {
-                if (_endOfFile || ReadNextPacket(_queues.ContainsKey) is not { } packet)
+                if (_endOfFile || ReadNextPacket(t => _queues.ContainsKey(t) || _taps.ContainsKey(t)) is not { } packet)
                 {
                     _endOfFile = true;
                     return null;
                 }
 
-                if (_queues.TryGetValue(packet.Track, out var target))
+                if (_taps.TryGetValue(packet.Track, out var sink))
+                {
+                    sink(packet);
+                }
+                else if (_queues.TryGetValue(packet.Track, out var target))
                 {
                     target.Enqueue(packet);
                     if (!_active.Contains(packet.Track) && target.Count > MaxQueuedInactivePackets)
@@ -201,6 +238,111 @@ internal sealed class MatroskaDemuxer : IDisposable
 
             return packets;
         }
+    }
+
+    /// <summary>
+    /// Reads the block a cue entry with a <see cref="CuePoint.RelativePosition"/> points at, without
+    /// disturbing playback state. Null if the entry doesn't lead to a block of its track.
+    /// </summary>
+    public MatroskaPacket? ReadPacketAt(CuePoint cue)
+    {
+        lock (_gate)
+        {
+            long position = _s.Position;
+            long clusterTimestamp = _clusterTimestamp;
+            try
+            {
+                long cluster = _segmentStart + cue.ClusterPosition;
+                if (!_clusterDataStarts.TryGetValue(cluster, out long dataStart))
+                {
+                    _s.Position = cluster;
+                    if (!_s.TryReadHeader(out uint id, out _) || id != Ids.Cluster)
+                    {
+                        return null;
+                    }
+
+                    dataStart = _clusterDataStarts[cluster] = _s.Position;
+                }
+
+                _s.Position = dataStart + cue.RelativePosition;
+                if (!_s.TryReadHeader(out uint blockId, out long size) || blockId is not (Ids.SimpleBlock or Ids.BlockGroup))
+                {
+                    return null;
+                }
+
+                // The cue's time is the block's own, so the cluster's timestamp isn't needed.
+                _clusterTimestamp = 0;
+                MatroskaPacket? packet = blockId == Ids.SimpleBlock
+                    ? PeekTrackNumber() == cue.Track ? BuildPacket(_s.ReadBytes(size), simple: true, blockDuration: null, hasReference: false) : null
+                    : ReadBlockGroup(_s.Position + size, t => t == cue.Track);
+                if (packet is null)
+                {
+                    return null;
+                }
+
+                long duration = packet.DurationTicks > 0 ? packet.DurationTicks : cue.DurationTicks;
+                return packet with { TimeTicks = cue.TimeTicks, DurationTicks = duration };
+            }
+            finally
+            {
+                _s.Position = position;
+                _clusterTimestamp = clusterTimestamp;
+            }
+        }
+    }
+
+    /// <summary>Reads the segment's attached files (fonts for ASS subtitles, cover art), or none.</summary>
+    public List<MatroskaAttachment> ReadAttachments()
+    {
+        var files = new List<MatroskaAttachment>();
+        lock (_gate)
+        {
+            if (_attachments < 0)
+            {
+                return files;
+            }
+
+            long position = _s.Position;
+            try
+            {
+                _s.Position = _attachments;
+                if (!_s.TryReadHeader(out uint id, out long size) || id != Ids.Attachments)
+                {
+                    return files;
+                }
+
+                _s.ForEachChild(_s.Position + size, (child, childSize) =>
+                {
+                    if (child != Ids.AttachedFile)
+                    {
+                        return;
+                    }
+
+                    string name = "";
+                    string? mime = null;
+                    byte[]? data = null;
+                    _s.ForEachChild(_s.Position + childSize, (field, fieldSize) =>
+                    {
+                        switch (field)
+                        {
+                            case Ids.FileName: name = _s.ReadString(fieldSize); break;
+                            case Ids.FileMimeType: mime = _s.ReadString(fieldSize); break;
+                            case Ids.FileData: data = _s.ReadBytes(fieldSize); break;
+                        }
+                    });
+                    if (data is not null)
+                    {
+                        files.Add(new MatroskaAttachment(name, mime, data));
+                    }
+                });
+            }
+            finally
+            {
+                _s.Position = position;
+            }
+        }
+
+        return files;
     }
 
     public int? FirstVideoTrack => Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video)?.Number;
@@ -272,7 +414,16 @@ internal sealed class MatroskaDemuxer : IDisposable
             switch (id)
             {
                 case Ids.SeekHead:
-                    cuesOffset ??= ParseSeekHead(end);
+                    var (cues, attachments) = ParseSeekHead(end);
+                    cuesOffset ??= cues;
+                    if (_attachments < 0 && attachments is long a)
+                    {
+                        _attachments = _segmentStart + a;
+                    }
+
+                    break;
+                case Ids.Attachments:
+                    _attachments = elementStart;
                     break;
                 case Ids.Info:
                     _s.ForEachChild(end, (child, childSize) =>
@@ -327,9 +478,10 @@ internal sealed class MatroskaDemuxer : IDisposable
         _s.Position = _firstCluster;
     }
 
-    private long? ParseSeekHead(long end)
+    private (long? Cues, long? Attachments) ParseSeekHead(long end)
     {
         long? cues = null;
+        long? attachments = null;
         _s.ForEachChild(end, (child, childSize) =>
         {
             if (child != Ids.Seek)
@@ -354,8 +506,12 @@ internal sealed class MatroskaDemuxer : IDisposable
             {
                 cues = position;
             }
+            else if (seekId == Ids.Attachments && position >= 0)
+            {
+                attachments = position;
+            }
         });
-        return cues;
+        return (cues, attachments);
     }
 
     private MatroskaTrack ParseTrack(long end)
@@ -368,6 +524,7 @@ internal sealed class MatroskaDemuxer : IDisposable
                 case Ids.TrackNumber: track.Number = (int)_s.ReadUInt(size); break;
                 case Ids.TrackType: track.Kind = (TrackKind)_s.ReadUInt(size); break;
                 case Ids.FlagDefault: track.IsDefault = _s.ReadUInt(size) != 0; break;
+                case Ids.FlagForced: track.IsForced = _s.ReadUInt(size) != 0; break;
                 case Ids.DefaultDuration: track.DefaultDurationNs = (long)_s.ReadUInt(size); break;
                 case Ids.Name: track.Name = _s.ReadString(size); break;
                 case Ids.Language: track.Language = _s.ReadString(size); break;
@@ -523,20 +680,21 @@ internal sealed class MatroskaDemuxer : IDisposable
                 {
                     int cueTrack = 0;
                     long cluster = -1;
+                    long relative = 0;
+                    long duration = 0;
                     _s.ForEachChild(_s.Position + fieldSize, (position, positionSize) =>
                     {
-                        if (position == Ids.CueTrack)
+                        switch (position)
                         {
-                            cueTrack = (int)_s.ReadUInt(positionSize);
-                        }
-                        else if (position == Ids.CueClusterPosition)
-                        {
-                            cluster = (long)_s.ReadUInt(positionSize);
+                            case Ids.CueTrack: cueTrack = (int)_s.ReadUInt(positionSize); break;
+                            case Ids.CueClusterPosition: cluster = (long)_s.ReadUInt(positionSize); break;
+                            case Ids.CueRelativePosition: relative = (long)_s.ReadUInt(positionSize); break;
+                            case Ids.CueDuration: duration = (long)_s.ReadUInt(positionSize); break;
                         }
                     });
                     if (cluster >= 0)
                     {
-                        Cues.Add((time * _timestampScale / 100, cueTrack, cluster));
+                        Cues.Add(new CuePoint(time * _timestampScale / 100, cueTrack, cluster, relative, duration * _timestampScale / 100));
                     }
                 }
             });

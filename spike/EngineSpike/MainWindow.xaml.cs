@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _heartbeatTimer;
     private DispatcherQueueTimer? _atmosClockTimer;
     private AtmosPlayback? _atmos;
+    private PresentationClock? _clock;
     private MediaPlaybackItem? _mfItem;
     private MediaSource? _mfSource;
     private DeviceInformation? _mfAudioDevice;
@@ -87,7 +88,7 @@ public sealed partial class MainWindow : Window
         _mf.PlaybackSession.PlaybackStateChanged += (s, _) =>
         {
             _log.Line($"MF state {s.PlaybackState}");
-            _atmos?.OnVideoStateChanged(s.Position, s.PlaybackState == MediaPlaybackState.Playing);
+            _clock?.OnStateChanged(s.Position, s.PlaybackState == MediaPlaybackState.Playing);
         };
 
         VideoArea.LayoutUpdated += (_, _) => SyncVideoHostBounds();
@@ -312,16 +313,19 @@ public sealed partial class MainWindow : Window
 
     private void StartAtmos(string path, MatroskaMediaSource mkv, int track)
     {
-        _atmos = new AtmosPlayback(path, track, new TrueHdAtmosDecoder());
+        _clock = new PresentationClock();
+        _clock.Trace += message => _log.Line($"Atmos: {message}");
+        _atmos = new AtmosPlayback(path, track, new TrueHdAtmosDecoder(), _clock);
         _atmos.Output.Muted = _options.Mute;
         _atmos.Failed += message => _log.Line($"Atmos: {message}");
         _atmos.Trace += message => _log.Line($"Atmos: {message}");
+        mkv.Seeked += _clock.OnSeeked;
         mkv.Seeked += _atmos.OnSeeked;
         mkv.StartGate = _atmos.WaitUntilReadyAsync;
-        mkv.StartReleased += _atmos.OnStartReleased;
+        mkv.StartReleased += _clock.OnStartReleased;
         _atmosClockTimer = DispatcherQueue.CreateTimer();
         _atmosClockTimer.Interval = TimeSpan.FromMilliseconds(50);
-        _atmosClockTimer.Tick += (_, _) => _atmos?.UpdateVideoClock(
+        _atmosClockTimer.Tick += (_, _) => _clock?.Update(
             _mf.PlaybackSession.Position, _mf.PlaybackSession.PlaybackState == MediaPlaybackState.Playing);
         _atmosClockTimer.Start();
         _log.Line($"Atmos: TrueHD track #{track} → truehd decoder → Windows Spatial Sound ([ / ] shift lip-sync)");
@@ -349,6 +353,7 @@ public sealed partial class MainWindow : Window
         _atmosClockTimer = null;
         _atmos?.Dispose();
         _atmos = null;
+        _clock = null;
         _mpvInfoTimer.Stop();
         _mpv.Stop();
         _videoHost.Show(false);

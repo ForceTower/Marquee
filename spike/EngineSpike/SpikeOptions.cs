@@ -34,6 +34,11 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
     /// <summary>DV info mode: write the file's Dolby Vision configuration and first RPU to this path and exit.</summary>
     public string? DvInfoOutput { get; init; }
 
+    /// <summary>Subtitle test mode: render each subtitle track around --start into PNGs in this folder, with a report, and exit.</summary>
+    public string? SubtitleTestFolder { get; init; }
+
+    public int? SubtitleTrack { get; init; }
+
     public static SpikeOptions Parse(string[] args)
     {
         Engine? engine = null;
@@ -54,6 +59,8 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
         string? bed = null;
         bool trueHdAtmos = false;
         string? dvInfoOutput = null;
+        string? subtitleTestFolder = null;
+        int? subtitleTrack = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -106,6 +113,12 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
                 case "--dv-info" when i + 1 < args.Length:
                     dvInfoOutput = args[++i];
                     break;
+                case "--sub-test" when i + 1 < args.Length:
+                    subtitleTestFolder = args[++i];
+                    break;
+                case "--sub-track" when i + 1 < args.Length:
+                    subtitleTrack = int.Parse(args[++i]);
+                    break;
                 case "--audio-track" when i + 1 < args.Length:
                     audioTrack = int.Parse(args[++i]);
                     break;
@@ -133,6 +146,8 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
             Bed = bed,
             TrueHdAtmos = trueHdAtmos,
             DvInfoOutput = dvInfoOutput,
+            SubtitleTestFolder = subtitleTestFolder,
+            SubtitleTrack = subtitleTrack,
         };
     }
 }

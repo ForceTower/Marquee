@@ -1,9 +1,7 @@
 using System.Runtime.InteropServices;
+using Marquee.Playback.MediaFoundation;
 
 namespace Marquee.Playback.SpatialAudio;
-
-/// <summary>Where the video is: media time and whether it's advancing.</summary>
-internal readonly record struct VideoClock(long Ticks, bool Playing);
 
 /// <summary>
 /// Renders an <see cref="AtmosStream"/> through Windows Spatial Sound: bed channels with a static

@@ -57,6 +57,12 @@ internal interface IPlayerEngine : IDisposable
     int AudioDelayMs { get; set; }
 
     bool CanShowSubtitles { get; }
+
+    /// <summary>Whether this engine can show that subtitle track (false means it plays through mpv).</summary>
+    bool CanShowSubtitle(int ordinal);
+
+    /// <summary>Whether this engine can load that subtitle file.</summary>
+    bool CanShowSubtitleFile(string path);
     IReadOnlyList<TrackOption> AudioTracks { get; }
     IReadOnlyList<TrackOption> SubtitleTracks { get; }
     int? SelectedAudio { get; }

@@ -53,7 +53,7 @@ internal sealed class MatroskaMediaSource
     /// </summary>
     public Func<TimeSpan, Task>? StartGate { get; set; }
 
-    /// <summary>Raised when a start held by <see cref="StartGate"/> is released, just before samples flow.</summary>
+    /// <summary>Raised when a (re)start is released (at once, or once <see cref="StartGate"/> completes), just before samples flow.</summary>
     public event Action? StartReleased;
 
     internal MatroskaDemuxer Demuxer => _demuxer;
@@ -381,6 +381,7 @@ internal sealed class MatroskaMediaSource
             }
 
             args.Request.SetActualStartPosition(actual);
+            StartReleased?.Invoke();
         }
     }
 

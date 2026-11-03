@@ -43,7 +43,7 @@ Infuse-level quality on Windows:
 - Parked for later: volume stabilization / night mode (mpv audio filters; range compression in the
   Dolby decoder for Media Foundation).
 
-## Status (2026-11-02)
+## Status (2026-11-03)
 
 The real app (`src/Marquee`) exists: Plex PIN sign-in and sync, local folders with TMDB matching, a
 SQLite library, the Home / Movies / TV / detail / Sources / Settings screens, and the player on both
@@ -65,14 +65,18 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
   - Each frame's RPU is converted to 8.1 (dovi_tool mode 2) and the enhancement layer dropped.
   - Tested on 17 P7 remuxes; all convert: 10 MEL (lossless) and 7 FEL (EL precision dropped).
   - Confirmed on a Dolby Vision display, with a correct picture, for both MEL and FEL.
+- **Subtitles in the Media Foundation engine** (2026-11-03), so subtitles no longer force mpv and
+  HDR10:
+  - SRT, WebVTT, ASS/SSA, PGS, VobSub and DVB, embedded or as files.
+  - Rendered by libass and FFmpeg's bitmap decoders, as in mpv, into a XAML layer over the video.
+  - Checked by rendering frames from real WEB-DLs, UHD remuxes and anime ASS tracks, and in the app
+    over real Dolby Vision. Not yet checked by a human for timing.
 
 Next:
 
-1. Subtitles for the Media Foundation engine (XAML overlay; SRT, ASS, PGS), so subtitles stop
-   forcing mpv (and HDR10 instead of real Dolby Vision).
-2. Matroska chapters in the MKV reader (chapters currently come from Plex or mpv).
-3. Display handling: HDR on/off and refresh-rate matching.
-4. .NET 10 LTS (only the .NET 9 SDK is installed; .NET 9 support ends November 2026).
+1. Matroska chapters in the MKV reader (chapters currently come from Plex or mpv).
+2. Display handling: HDR on/off and refresh-rate matching.
+3. .NET 10 LTS (only the .NET 9 SDK is installed; .NET 9 support ends November 2026).
 
 ## The app (`src/Marquee`)
 
@@ -102,7 +106,8 @@ Next:
 - **Player:** `Player/PlaybackPlanner` picks the version, audio (preferred language → Atmos →
   lossless → channels), subtitles (off / forced-only / always), resume point and engine.
   Automatic routing uses Media Foundation only when it adds something (real DV, Atmos objects,
-  DTS:X) and no full subtitles are wanted. `MpvEngine` and `MediaFoundationEngine` implement
+  DTS:X) and can show the chosen subtitles (embedded ones need Marquee's MKV reader, so MP4 tracks
+  still go to mpv). `MpvEngine` and `MediaFoundationEngine` implement
   `IPlayerEngine`; `PlayerView` runs a 50 ms tick, reports Plex timeline/progress every 10 s,
   scrobbles at 90 % or the final credits, shows skip-intro/credits from markers and counts down
   to the next episode. The user's star rating (`RatingControl`, Plex's 0–10 `userRating`) syncs
@@ -133,6 +138,43 @@ Next:
   packages: HEVC Video Extensions, Dolby Vision Extensions (`DolbyLaboratories.DolbyVisionAccess`)
   and the Dolby Digital Plus decoder (`DolbyLaboratories.DolbyDigitalPlusDecoderOEM`). All of them
   work from the unpackaged app.
+- **libass** 0.17.5 renders ASS/SSA subtitles (and SRT converted to ASS) for the Media Foundation
+  engine. It's separate from the libass inside libmpv.
+  - `tools/build-libass.ps1` builds one `lib/libass/libass.dll` with meson + MSVC. FreeType,
+    FriBidi and HarfBuzz are pinned meson wraps, linked in statically.
+  - Fonts come from the DirectWrite provider (no fontconfig); the assembly is on (nasm).
+  - It's built without iconv and libunibreak, so input must be UTF-8 and
+    `ASS_FEATURE_WRAP_UNICODE` is unavailable.
+  - P/Invoke lives in `Subtitles/LibAss.cs`.
+- **Subtitles for Media Foundation** (`Marquee.Playback/Subtitles/`, `Player/SubtitleOverlay`).
+  This is mpv's approach without mpv's code:
+  - **Text:** SRT and WebVTT become ASS events under a 1080p Segoe UI style (`TextSubtitles`).
+    - Markup converts: i/b/u/s, font colour and face.
+    - `{\an8}` and other override blocks pass through; literal braces are escaped as `\{`.
+    - libass renders them, and ASS/SSA, at the overlay's own resolution (`AssRenderer`).
+    - As with mpv's defaults, converted text may sit in the black bars and scales with the window,
+      not the picture.
+  - **Bitmaps:** PGS, VobSub and DVB go through FFmpeg's decoders (`BitmapSubtitleRenderer`).
+    - A PGS set can reuse objects from earlier sets in its epoch, so after a jump decoding
+      restarts at the last epoch start or acquisition point.
+    - A canvas the shape of the video maps onto it. A 1080p canvas over a cropped encode is scaled
+      to the video's width and centred, as if the bars were still there.
+  - **Packets come through the MKV's index.** mkvmerge writes a cue entry for every subtitle block,
+    with `CueRelativePosition` (the block's offset in its cluster) and `CueDuration`.
+    - `MatroskaSubtitleSource` reads exactly the blocks from 10 s before to 60 s after the playing
+      time, through its own 16 KB-buffered demuxer.
+    - So seeks and track switches show lines that are already on screen.
+    - Without those entries it taps the playback demuxer (`MatroskaDemuxer.Tap`) and misses lines
+      that began before a seek's keyframe.
+  - **Fonts and encodings:** fonts attached to the MKV go to libass. File encodings are detected
+    (BOM, strict UTF-8, else Windows-1252), because libass only takes UTF-8.
+  - **Timing:** `SubtitlePlayback` renders on its own thread, once per video frame, against the
+    `PresentationClock` (see the TrueHD Atmos sync notes).
+  - **Drawing:** `SubtitleOverlay` draws the newest frame as `WriteableBitmap`s on a Canvas over
+    `MediaPlayerElement`. That's XAML content, so in HDR it shows at Windows' SDR brightness.
+  - Embedded MP4 subtitle tracks still go to mpv.
+  - `EngineSpike --sub-test <folder> [--sub-track N] [--start S] <mkv>` lists a file's subtitle
+    tracks and their index coverage, then renders each around `--start` to PNGs plus a report.
 - **Marquee's MKV reader** (`Matroska/`). Windows' own MKV source drops Dolby Vision and HDR
   attributes, and fails outright on DV profile 5. So Marquee demuxes Matroska itself and feeds
   Media Foundation through a `MediaStreamSource`:
@@ -208,8 +250,9 @@ Next:
     - On `Seeked(actualStart)` it decodes from the cue at least 250 ms earlier (pre-roll).
     - `MatroskaMediaSource.StartGate` defers Media Foundation's `Starting` request until audio has
       been decoded 200 ms past the start point (timeout 1.5 s).
-    - The audio clock runs Held → Armed (on `StartReleased`) → Free. In Armed, the next "Playing"
-      anchors it at the actual start; if none arrives, it falls back after 300 ms.
+    - The video clock (`MediaFoundation/PresentationClock`, shared with subtitles) runs Held →
+      Armed (on `StartReleased`) → Free. In Armed, the next "Playing" anchors it at the actual
+      start; if none arrives, it falls back after 300 ms.
   - **Track choice:** with TrueHD objects available, a remux's TrueHD (lossless, with objects) beats
     a DD+ Atmos compatibility track for English.
 - **Atmos lab** (`--atmos-lab x.atmos --bed p2.caf`): plays a truehdd DAMF decode and its 7.1
@@ -233,7 +276,8 @@ src/Marquee/              The app (WinUI 3)
   Shell/                  MainWindow, theme accent, formatting, log
   Pages/                  Home, Library, movie/show detail, Sources, Settings, match dialog
   Controls/               Poster/episode cards (hover lift + glow), episode row, SettingsCard
-  Player/                 Planner, engines, PlayerView, PlayerControls, overlay window, cursor blocker
+  Player/                 Planner, engines, PlayerView, PlayerControls, overlay window, cursor blocker,
+                          subtitle overlay
   Data/                   SQLite library, models, settings, DPAPI secrets
   Plex/                   plex.tv + Plex Media Server API, JSON mapping
   Library/                Sync, folder scanner, file-name parser, TMDB, details, watch state
@@ -242,18 +286,20 @@ src/Marquee/              The app (WinUI 3)
   Assets/                 App icon (generated by tools/make-icon.ps1)
 src/Marquee.Playback/     Engine library shared by the app and the spike
   Mpv/                    libmpv P/Invoke and player wrapper
-  MediaFoundation/        MF diagnostics and the Atmos probe
+  MediaFoundation/        MF diagnostics, the Atmos probe, the presentation clock
   Matroska/               Marquee's MKV demuxer and MediaStreamSource
   IO/                     File/URL opening, HttpRangeStream for Plex direct play
   Interop/                Win32 child window that hosts mpv; Store codec runtime preload
   SpatialAudio/           Windows Spatial Sound output, TrueHD Atmos playback
+  Subtitles/              libass and FFmpeg subtitle renderers, sources, the subtitle thread
 spike/EngineSpike/        WinUI 3 test harness: both engines, A/B, probes, Atmos lab
   samples.txt             your test files, label|path (gitignored; copy samples.example.txt)
 native/truehd-ffi/        Rust C ABI over the truehd crate (TrueHD Atmos)
 native/dovi-ffi/          Rust C ABI over the dolby_vision crate (DV RPU conversion)
-tools/                    fetch-libmpv.ps1, fetch-ffmpeg.ps1, build-native.ps1, make-icon.ps1
-lib/                      libmpv-2.dll, ffmpeg/, truehd/, dovi/ (gitignored, fetched or built)
-mise.toml                 Rust toolchain pin
+tools/                    fetch-libmpv.ps1, fetch-ffmpeg.ps1, build-native.ps1, build-libass.ps1,
+                          make-icon.ps1
+lib/                      libmpv-2.dll, ffmpeg/, truehd/, dovi/, libass/ (gitignored, fetched or built)
+mise.toml                 Rust toolchain and libass build tool pins
 ```
 
 The engine code is `internal`; `Marquee.Playback` grants `InternalsVisibleTo` to `Marquee` and
@@ -262,10 +308,11 @@ The engine code is `internal`; `Marquee.Playback` grants `InternalsVisibleTo` to
 ## Build, run, test
 
 ```powershell
-mise install                      # Rust 1.99.1, pinned in mise.toml
+mise install                      # Rust, plus Python/uv/meson/ninja/nasm for libass (mise.toml)
 ./tools/fetch-libmpv.ps1
 ./tools/fetch-ffmpeg.ps1
 ./tools/build-native.ps1          # cargo build → lib/truehd/marquee_truehd.dll, lib/dovi/marquee_dovi.dll
+./tools/build-libass.ps1          # meson + MSVC → lib/libass/libass.dll
 dotnet build src/Marquee -p:Platform=x64
 src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
 dotnet build spike/EngineSpike -p:Platform=x64
@@ -274,6 +321,9 @@ spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.e
 
 - App test flags: `--page home|movies|shows|sources|settings`, `--open "title"` (detail page of
   the best search match), `--play "title"` (resumes it, or a show's next episode), `--mute`.
+  Before `--play`: `--subtitle N` starts with that subtitle ordinal whatever the preferences say,
+  and `--start SECONDS` starts there and stops progress reporting, so a test run doesn't move the
+  resume point in the library or on Plex.
 - Seeing the app without clicking: `PrintWindow(hwnd, …, PW_RENDERFULLCONTENT)` captures the main
   window from a **DPI-aware** process (a DPI-unaware one gets a virtualized, cropped rect). It
   doesn't include the mpv overlay window; capture the screen region for that.
@@ -283,9 +333,10 @@ spike/EngineSpike/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/EngineSpike.e
 - CLI: `--engine mpv|mf`, `--start SECONDS`, `--mute`, `--fullscreen`, `--exit-after N` (also adds
   a 3-second position heartbeat), `--probe`, `--native-mkv`, `--no-dv`, `--audio-track N`
   (0-based index in Media Foundation's track list), `--ffmpeg-dts`, `--truehd-atmos`, then the
-  path. Two other modes:
+  path. Other modes:
   - `--extract-track N --start S --seconds D --out f.thd <mkv>` writes raw packets, for example a
     TrueHD clip for truehdd.
+  - `--sub-test <folder> [--sub-track N] [--start S] <mkv>` renders subtitle tracks to PNGs.
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
   - `--dv-info out.txt <mkv>` writes the Dolby Vision configuration and first RPU (e.g. P7 FEL vs
     MEL) and exits.
@@ -340,7 +391,12 @@ the media server's address, audio endpoint names. What the code assumes about an
     it presents from the keyframe passed to `SetActualStartPosition` (e.g. 9:54.719).
   
   Anchor to the actual start after the start is released, and ignore polled positions for about a
-  second.
+  second. `PresentationClock` does this for anything timed to Media Foundation's video (TrueHD
+  Atmos, subtitles); `MatroskaMediaSource` raises `StartReleased` even when no start gate holds it.
+- Many UHD Blu-ray PGS tracks are authored grey, not white, so they aren't glaring over HDR. mpv
+  shows them grey too; that isn't a palette bug.
+- A WEB-DL MKV usually carries a "Forced" text track with only a handful of events (signs, foreign
+  dialogue), so a forced track that renders nothing at a given minute is normal.
 - libmpv's defaults differ from mpv.exe: no config, OSC or input bindings unless they're set before
   `mpv_initialize`. mpv.conf loads *during* `mpv_initialize`, so the app sets its own settings as
   properties afterwards to win over it.
@@ -400,9 +456,12 @@ the media server's address, audio endpoint names. What the code assumes about an
 - Write comments only where the logic isn't obvious.
 - Never add AI attribution to commits, PRs or anything else: no Co-Authored-By trailers and no
   "generated with" footers.
-- Commit only when asked. The repo has no remote yet.
-- Licensing: shinchiro's libmpv/FFmpeg builds are GPL. That's fine while the project is personal;
-  a closed-source release would need LGPL builds. The separate FFmpeg used for audio decoding is
-  already an LGPL build. The `truehd` crate is Apache-2.0, but it is a reverse-engineered
-  implementation of Dolby's format, so distributing it would be a legal question, not a license
-  one.
+- Commit only when asked. The repo is public on GitHub (`origin`,
+  `git@github.com:ForceTower/Marquee.git`), so commits carry no personal setup: no IPs, paths,
+  hardware or endpoint names, real titles or release names. Those live in `CLAUDE.local.md`; describe
+  test files by format ("DV P8 MKV WEB-DL", "UHD remux P7 FEL").
+- Licensing: Marquee is GPL-3.0 (`LICENSE`), which suits the GPL libmpv build it bundles
+  (shinchiro's). `THIRD-PARTY-NOTICES.md` lists the third-party work and its licenses. The separate
+  FFmpeg used for audio decoding is an LGPL build. The `truehd` crate is Apache-2.0, but it is a
+  reverse-engineered implementation of Dolby's format, so distributing it would be a legal
+  question, not a license one.

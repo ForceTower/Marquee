@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Marquee.Playback.Matroska;
+using Marquee.Playback.MediaFoundation;
 
 namespace Marquee.Playback.SpatialAudio;
 
@@ -16,7 +17,7 @@ internal interface IAtmosDecoder : IDisposable
 /// <summary>
 /// Plays a TrueHD Atmos track alongside video that Media Foundation renders on its own. A decode
 /// thread reads the track through its own demuxer into an <see cref="AtmosStream"/>, and
-/// <see cref="SpatialAtmosOutput"/> renders it locked to the video clock.
+/// <see cref="SpatialAtmosOutput"/> renders it locked to the video's <see cref="PresentationClock"/>.
 ///
 /// TrueHD can only start decoding at a major sync (up to ~107 ms apart) and object positions arrive
 /// every ~32 ms, so after a seek decoding starts <see cref="PreRoll"/> early; the audio before the
@@ -36,30 +37,8 @@ internal sealed class AtmosPlayback : IDisposable
     private readonly AtmosStream _stream = new();
     private readonly SpatialAtmosOutput _output;
     private readonly Thread _thread;
-    private readonly object _clockLock = new();
     private readonly object _seekLock = new();
     private volatile bool _stop;
-    private long _clockTicks;
-    private long _clockStamp;
-    private bool _clockPlaying;
-
-    // The video clock after a seek, as Media Foundation reports it, is unreliable twice over: it
-    // says "Playing" while the start is still held (it reacts to Play(), not to frames), and once
-    // frames do flow it reports the *requested* position for a while, though it presents from the
-    // actual start (the keyframe given to SetActualStartPosition). So: Held until the start is
-    // released, then Armed until the next "Playing" (anchored at the actual start), then Free —
-    // with polled positions ignored for a second after anchoring.
-    private enum ClockState
-    {
-        Free,
-        Held,
-        Armed,
-    }
-
-    private static readonly long ArmedFallbackTicks = Stopwatch.Frequency * 3 / 10;
-    private ClockState _clockState;
-    private long _armedStamp;
-    private long _ignorePollsUntil;
     private TimeSpan? _pendingSeek;
     private TimeSpan _startPoint;
     private long _seekStamp;
@@ -72,14 +51,18 @@ internal sealed class AtmosPlayback : IDisposable
     public event Action<string>? Failed;
     public event Action<string>? Trace;
 
-    public AtmosPlayback(string path, int track, IAtmosDecoder decoder)
+    /// <param name="clock">
+    /// The video's clock. Its owner feeds it the video's seeks and state; wire its
+    /// <see cref="PresentationClock.OnSeeked"/> before this instance's <see cref="OnSeeked"/>.
+    /// </param>
+    public AtmosPlayback(string path, int track, IAtmosDecoder decoder, PresentationClock clock)
     {
         _demuxer = MatroskaDemuxer.Open(path, 64 * 1024);
         _demuxer.Expose(track, active: true);
         _track = track;
         _seekTrack = _demuxer.FirstVideoTrack ?? track;
         _decoder = decoder;
-        _output = new SpatialAtmosOutput(_stream, ClockNow);
+        _output = new SpatialAtmosOutput(_stream, clock.Now);
         _output.Failed += message => Failed?.Invoke(message);
         _output.Trace += message => Trace?.Invoke(message);
         _thread = new Thread(DecodeLoop) { IsBackground = true, Name = "Atmos decode" };
@@ -98,67 +81,7 @@ internal sealed class AtmosPlayback : IDisposable
             _ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
-        lock (_clockLock)
-        {
-            _clockTicks = start.Ticks;
-            _clockStamp = Stopwatch.GetTimestamp();
-            _clockPlaying = false;
-            _clockState = ClockState.Held;
-        }
-
         _stream.Reset();
-    }
-
-    /// <summary>The held video start was released; frames are about to flow.</summary>
-    public void OnStartReleased()
-    {
-        lock (_clockLock)
-        {
-            if (_clockState == ClockState.Held)
-            {
-                _clockState = ClockState.Armed;
-                _armedStamp = Stopwatch.GetTimestamp();
-            }
-        }
-    }
-
-    /// <summary>The video engine reported a playback state change (play, pause, buffering).</summary>
-    public void OnVideoStateChanged(TimeSpan position, bool playing)
-    {
-        lock (_clockLock)
-        {
-            switch (_clockState)
-            {
-                case ClockState.Held:
-                    return;
-                case ClockState.Armed when playing:
-                    Anchor(TimeSpan.Zero, $"video playing (reported {position:hh\\:mm\\:ss\\.fff})");
-                    return;
-                case ClockState.Armed:
-                    return;
-            }
-
-            _clockTicks = position.Ticks;
-            _clockStamp = Stopwatch.GetTimestamp();
-            _clockPlaying = playing;
-        }
-    }
-
-    /// <summary>Starts the clock at the actual start point (plus <paramref name="elapsed"/>). Call under the clock lock.</summary>
-    private void Anchor(TimeSpan elapsed, string why)
-    {
-        TimeSpan start;
-        lock (_seekLock)
-        {
-            start = _startPoint;
-        }
-
-        _clockTicks = (start + elapsed).Ticks;
-        _clockStamp = Stopwatch.GetTimestamp();
-        _clockPlaying = true;
-        _clockState = ClockState.Free;
-        _ignorePollsUntil = _clockStamp + Stopwatch.Frequency;
-        Trace?.Invoke($"clock anchored at {start + elapsed:hh\\:mm\\:ss\\.fff}: {why}");
     }
 
     /// <summary>Completes once audio reaching a little past the latest start point has been decoded.</summary>
@@ -167,43 +90,6 @@ internal sealed class AtmosPlayback : IDisposable
         lock (_seekLock)
         {
             return _ready?.Task ?? Task.CompletedTask;
-        }
-    }
-
-    /// <summary>Called periodically with the video engine's position; the output extrapolates between calls.</summary>
-    public void UpdateVideoClock(TimeSpan position, bool playing)
-    {
-        lock (_clockLock)
-        {
-            long now = Stopwatch.GetTimestamp();
-            if (_clockState == ClockState.Armed && playing && now - _armedStamp > ArmedFallbackTicks)
-            {
-                Anchor(Stopwatch.GetElapsedTime(_armedStamp), "no fresh Playing event after release; anchored from the release time");
-                return;
-            }
-
-            if (_clockState != ClockState.Free || now < _ignorePollsUntil)
-            {
-                return;
-            }
-
-            _clockTicks = position.Ticks;
-            _clockStamp = Stopwatch.GetTimestamp();
-            _clockPlaying = playing;
-        }
-    }
-
-    private VideoClock ClockNow()
-    {
-        lock (_clockLock)
-        {
-            long ticks = _clockTicks;
-            if (_clockPlaying)
-            {
-                ticks += Stopwatch.GetElapsedTime(_clockStamp).Ticks;
-            }
-
-            return new VideoClock(ticks, _clockPlaying);
         }
     }
 

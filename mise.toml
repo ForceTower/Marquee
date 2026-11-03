@@ -1,3 +1,9 @@
 [tools]
 # For native/truehd-ffi (TrueHD Atmos decoding). The truehd crate needs 1.88+, the truehdd CLI 1.95+.
 rust = "1.99.1"
+# For tools/build-libass.ps1 (libass with meson + MSVC). uv installs meson; nasm builds libass's assembly.
+python = "3.14.10"
+uv = "0.13.6"
+meson = "1.12.1"
+ninja = "1.13.2"
+"http:nasm" = { version = "3.02", url = "https://www.nasm.us/pub/nasm/releasebuilds/{{version}}/win64/nasm-{{version}}-win64.zip", checksum = "sha256:161d0bfaff53c2f9e9f3e69fd0672323ebabafd1268976a5cec11be92a19aee7" }

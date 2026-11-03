@@ -9,7 +9,8 @@ The plan is two playback engines chosen per file:
   Vision applied by libplacebo and output as HDR10.
 - **Media Foundation**: the Dolby-licensed paths Windows already ships — real Dolby Vision
   signalling via the Dolby Vision Extension, and DD+ Atmos objects via the system decoder into
-  Windows Spatial Sound.
+  Windows Spatial Sound. Marquee renders its subtitles itself (SRT, ASS/SSA, WebVTT through libass;
+  PGS and VobSub through FFmpeg), so subtitles don't cost real Dolby Vision.
 
 ## The app
 
@@ -25,13 +26,14 @@ Segoe Fluent icons) with a dark graphite and amber look.
 - **Screens:** Home (continue watching, recently added, up next), Movies and TV grids, movie and
   series detail pages, Sources, Settings.
 - **Player:** picks the engine per file. Media Foundation when it adds something mpv can't (real
-  Dolby Vision, Atmos objects, DTS:X), mpv otherwise or when subtitles are on. Plex items play the
+  Dolby Vision, Atmos objects, DTS:X), mpv otherwise or for subtitles it can't show (tracks inside
+  MP4 files). Plex items play the
   original file directly over HTTP. Progress and watched state sync back to Plex. It also does
   resume, skip intro/credits, next-episode countdown, chapters, audio and subtitle choice, picture
   in picture, frame stepping and lip-sync.
 
 ```powershell
-./tools/fetch-libmpv.ps1; ./tools/fetch-ffmpeg.ps1; ./tools/build-native.ps1
+./tools/fetch-libmpv.ps1; ./tools/fetch-ffmpeg.ps1; ./tools/build-native.ps1; ./tools/build-libass.ps1
 dotnet build src/Marquee -p:Platform=x64
 src/Marquee/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/Marquee.exe
 ```

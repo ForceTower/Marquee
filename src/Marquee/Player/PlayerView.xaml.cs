@@ -36,6 +36,9 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     /// <summary>Set by <c>--mute</c> for unattended tests.</summary>
     public static bool StartMuted { get; set; }
 
+    /// <summary>False for test runs (<c>--start</c>), which leave watch progress in the library and on Plex alone.</summary>
+    public static bool ReportsProgress { get; set; } = true;
+
     private readonly PlayerViewModel _vm = new();
     private readonly PlayerControls _inline;
     private readonly DispatcherQueueTimer _tick;
@@ -47,6 +50,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     private IPlayerEngine? _engine;
     private MpvEngine? _mpv;
     private MediaFoundationEngine? _mf;
+    private SubtitleOverlay? _subtitleOverlay;
     private OverlayWindow? _overlay;
     private PlayerControls? _overlayControls;
     private PlaybackRequest? _request;
@@ -183,7 +187,9 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             }
 
             _mf?.Pause();
+            _mf?.SelectSubtitle(null);
             MfElement.Visibility = Visibility.Collapsed;
+            SubtitleLayer.Visibility = Visibility.Collapsed;
             InlineHost.Visibility = Visibility.Collapsed;
             _engine = _mpv;
             PositionVideo();
@@ -197,6 +203,8 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
                 _mf = new MediaFoundationEngine(_settings);
                 Hook(_mf);
                 MfElement.SetMediaPlayer(_mf.Player);
+                var subtitles = _subtitleOverlay ??= new SubtitleOverlay(SubtitleLayer);
+                _mf.SubtitlesRendered += subtitles.Show;
             }
 
             if (_mpv is not null)
@@ -207,8 +215,10 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
             _overlay?.Hide();
             MfElement.Visibility = Visibility.Visible;
+            SubtitleLayer.Visibility = Visibility.Visible;
             InlineHost.Visibility = Visibility.Visible;
             _engine = _mf;
+            PositionVideo();
         }
 
         var engine = _engine;
@@ -381,7 +391,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     private void ReportProgress(TimeSpan position, TimeSpan duration, bool force, string? state = null)
     {
-        if (_request?.Item is not { } item || duration <= TimeSpan.Zero || _opening)
+        if (!ReportsProgress || _request?.Item is not { } item || duration <= TimeSpan.Zero || _opening)
         {
             return;
         }
@@ -710,6 +720,10 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             _mpv.SetBounds(client);
             _overlay?.Place(ToScreen(client));
         }
+        else if (_engine == _mf && _mf is not null)
+        {
+            _mf.SetSubtitleArea(client.Width, client.Height);
+        }
     }
 
     /// <summary>The stage in physical pixels, relative to the window's client area.</summary>
@@ -898,14 +912,14 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
         var prefs = TrackPreferences.Load(_request.Item.Id);
         (prefs with { Subtitle = ordinal ?? TrackPreferences.SubtitlesOff }).Save(_request.Item.Id);
-        if (engine.CanShowSubtitles || ordinal is null)
+        if (ordinal is not int o || engine.CanShowSubtitle(o))
         {
             engine.SelectSubtitle(ordinal);
             UpdateTracks();
             return;
         }
 
-        ShowMessage("Subtitles play through mpv for now, so Dolby Vision is shown as HDR10.");
+        ShowMessage("These subtitles play through mpv, so Dolby Vision is shown as HDR10.");
         await OpenEngineAsync(EngineMode.Mpv, _request with
         {
             Start = engine.Position,
@@ -978,8 +992,9 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             return;
         }
 
-        if (!engine.CanShowSubtitles)
+        if (!engine.CanShowSubtitleFile(file.Path))
         {
+            ShowMessage("This subtitle file plays through mpv, so Dolby Vision is shown as HDR10.");
             await OpenEngineAsync(EngineMode.Mpv, _request with { Start = engine.Position, Audio = engine.SelectedAudio ?? _request.Audio, Subtitle = null });
         }
 
@@ -1023,7 +1038,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         {
             Start = engine.Position,
             Audio = engine.SelectedAudio ?? _request.Audio,
-            Subtitle = target == EngineMode.Mpv ? engine.SelectedSubtitle ?? _request.Subtitle : null,
+            Subtitle = engine.SelectedSubtitle,
         });
     }
 

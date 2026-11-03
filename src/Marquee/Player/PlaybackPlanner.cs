@@ -12,10 +12,16 @@ internal sealed record PlaybackPlan(PlaybackRequest Request, EngineMode Engine, 
 /// <summary>
 /// Decides what to play and how: which file, which audio and subtitle tracks, where to start,
 /// and which engine. Media Foundation is chosen only when it adds something mpv can't (real Dolby
-/// Vision, Atmos objects, DTS:X), since it can't render subtitles yet.
+/// Vision, Atmos objects, DTS:X) and can show the chosen subtitles.
 /// </summary>
 internal static class PlaybackPlanner
 {
+    /// <summary>The <c>--subtitle N</c> test flag: the subtitle to start the next plan with, whatever the preferences say.</summary>
+    public static int? StartSubtitle { get; set; }
+
+    /// <summary>The <c>--start SECONDS</c> test flag: where the next plan starts, whatever the resume point.</summary>
+    public static TimeSpan? StartAt { get; set; }
+
     public static async Task<PlaybackPlan> PlanAsync(MediaItem item, bool resume, EngineMode? engine, TimeSpan? start = null)
     {
         var settings = App.Services.Settings.Current;
@@ -34,7 +40,10 @@ internal static class PlaybackPlanner
 
         int? audio = prefs.Audio ?? PickAudio(streams, settings);
         var audioStream = streams.FirstOrDefault(s => s.Kind == StreamKind.Audio && s.Ordinal == audio);
-        var (subtitle, subtitleForcedOnly) = PickSubtitle(streams, settings, prefs, audioStream);
+        int? subtitle = StartSubtitle ?? PickSubtitle(streams, settings, prefs, audioStream);
+        TimeSpan? testStart = StartAt;
+        StartSubtitle = null;
+        StartAt = null;
 
         var externals = new List<(string, string?, string)>();
         int embeddedSubtitles = streams.Count(s => s.Kind == StreamKind.Subtitle && s.Ordinal >= 0);
@@ -47,7 +56,7 @@ internal static class PlaybackPlanner
         }
 
         bool objects = settings.TrueHdAtmosObjects && audioStream is { Codec: "truehd", IsAtmos: true };
-        var startAt = start ?? (resume && settings.Resume == ResumeMode.Always && item.InProgress && item.Progress < 0.95
+        var startAt = start ?? testStart ?? (resume && settings.Resume == ResumeMode.Always && item.InProgress && item.Progress < 0.95
             ? TimeSpan.FromMilliseconds(Math.Max(0, item.PositionMs - 3000))
             : TimeSpan.Zero);
 
@@ -68,11 +77,11 @@ internal static class PlaybackPlanner
 
         var (chosen, note) = engine is { } forced and not EngineMode.Automatic
             ? (forced, null)
-            : Route(request, settings, audioStream, subtitleForcedOnly);
+            : Route(request, settings, audioStream);
         return new PlaybackPlan(request, chosen, note);
     }
 
-    private static (EngineMode, string?) Route(PlaybackRequest r, AppSettings settings, StreamInfo? audio, bool subtitleForcedOnly)
+    private static (EngineMode, string?) Route(PlaybackRequest r, AppSettings settings, StreamInfo? audio)
     {
         if (settings.Engine != EngineMode.Automatic)
         {
@@ -97,9 +106,9 @@ internal static class PlaybackPlanner
             return (EngineMode.Mpv, null);
         }
 
-        if (r.Subtitle is not null && !subtitleForcedOnly)
+        if (r.Subtitle is int subtitle && !MediaFoundationEngine.CanShow(r, subtitle))
         {
-            return (EngineMode.Mpv, "Subtitles play through mpv for now, so Dolby Vision is shown as HDR10.");
+            return (EngineMode.Mpv, "These subtitles play through mpv, so Dolby Vision is shown as HDR10.");
         }
 
         return (EngineMode.MediaFoundation, null);
@@ -134,11 +143,11 @@ internal static class PlaybackPlanner
             .First().Ordinal;
     }
 
-    private static (int? Ordinal, bool ForcedOnly) PickSubtitle(IReadOnlyList<StreamInfo> streams, AppSettings settings, TrackPreferences prefs, StreamInfo? audio)
+    private static int? PickSubtitle(IReadOnlyList<StreamInfo> streams, AppSettings settings, TrackPreferences prefs, StreamInfo? audio)
     {
         if (prefs.Subtitle is int chosen)
         {
-            return (chosen == TrackPreferences.SubtitlesOff ? null : chosen, false);
+            return chosen == TrackPreferences.SubtitlesOff ? null : chosen;
         }
 
         var subtitles = streams.Where(s => s.Kind == StreamKind.Subtitle && s.Ordinal >= 0).ToList();
@@ -147,14 +156,14 @@ internal static class PlaybackPlanner
         {
             case SubtitleMode.ForcedOnly:
                 var forced = subtitles.FirstOrDefault(s => s.Forced && (audioLanguage is null || Language.Key(s.LanguageTag) == audioLanguage));
-                return (forced?.Ordinal, true);
+                return forced?.Ordinal;
             case SubtitleMode.Always:
                 string? wanted = settings.PreferredSubtitleLanguage is { Length: > 0 } l ? l : audioLanguage;
                 var full = subtitles.FirstOrDefault(s => !s.Forced && Language.Key(s.LanguageTag) == wanted)
                            ?? subtitles.FirstOrDefault(s => !s.Forced);
-                return (full?.Ordinal, false);
+                return full?.Ordinal;
             default:
-                return (null, false);
+                return null;
         }
     }
 }

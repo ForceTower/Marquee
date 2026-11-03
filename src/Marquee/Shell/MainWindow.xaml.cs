@@ -105,7 +105,9 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// <c>--page home|movies|shows|sources|settings</c>, <c>--open "title"</c> (detail page of the
-    /// best search match) and <c>--play "title"</c> (resumes it). For testing without clicking.
+    /// best search match) and <c>--play "title"</c> (resumes it). Before <c>--play</c>:
+    /// <c>--subtitle N</c> starts with that subtitle ordinal whatever the preferences say, and
+    /// <c>--start SECONDS</c> starts there and leaves watch progress alone. For testing without clicking.
     /// </summary>
     private void RunStartupArguments(string[] args)
     {
@@ -117,6 +119,13 @@ public sealed partial class MainWindow : Window
             {
                 case "--page":
                     Navigate(args[i + 1]);
+                    break;
+                case "--subtitle" when int.TryParse(args[i + 1], out int subtitle):
+                    Player.PlaybackPlanner.StartSubtitle = subtitle;
+                    break;
+                case "--start" when double.TryParse(args[i + 1], System.Globalization.CultureInfo.InvariantCulture, out double seconds):
+                    Player.PlaybackPlanner.StartAt = TimeSpan.FromSeconds(seconds);
+                    Player.PlayerView.ReportsProgress = false;
                     break;
                 case "--open" when App.Services.Db.Search(args[i + 1], 1).FirstOrDefault() is { } item:
                     OpenItem(item);

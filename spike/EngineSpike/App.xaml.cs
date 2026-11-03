@@ -49,6 +49,12 @@ public partial class App : Application
             return;
         }
 
+        if (options is { SubtitleTestFolder: { } folder, Path: { } media })
+        {
+            _ = RunSubtitleTestAsync(media, folder, options.Start ?? TimeSpan.FromMinutes(10), options.SubtitleTrack);
+            return;
+        }
+
         if (options is { AtmosLab: { } atmos, Bed: { } bed })
         {
             _labWindow = new AtmosLabWindow(atmos, bed);
@@ -58,5 +64,22 @@ public partial class App : Application
 
         _window = new MainWindow(options);
         _window.Activate();
+    }
+
+    private async Task RunSubtitleTestAsync(string media, string folder, TimeSpan at, int? track)
+    {
+        string result;
+        try
+        {
+            result = await Marquee.Playback.Subtitles.SubtitleProbe.RunAsync(media, folder, at, track);
+        }
+        catch (Exception ex)
+        {
+            result = $"failed: {ex}";
+        }
+
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "subtitles.txt"), result);
+        Exit();
     }
 }

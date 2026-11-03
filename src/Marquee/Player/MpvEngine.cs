@@ -97,6 +97,10 @@ internal sealed class MpvEngine : IPlayerEngine
     public TimeSpan Duration => _duration;
     public TimeSpan Buffered => _buffered;
     public bool CanShowSubtitles => true;
+
+    public bool CanShowSubtitle(int ordinal) => true;
+
+    public bool CanShowSubtitleFile(string path) => true;
     public IReadOnlyList<TrackOption> AudioTracks => _audio.Select(a => a.Option).ToList();
     public IReadOnlyList<TrackOption> SubtitleTracks => _subtitles.Select(s => s.Option).ToList();
     public int? SelectedAudio { get; private set; }
