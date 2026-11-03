@@ -1,4 +1,5 @@
 global using Marquee.Playback;
+global using Marquee.Playback.Demuxing;
 global using Marquee.Playback.Interop;
 global using Marquee.Playback.Matroska;
 global using Marquee.Playback.MediaFoundation;

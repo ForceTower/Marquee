@@ -36,7 +36,7 @@ internal sealed unsafe class BitmapSubtitleRenderer : ISubtitleRenderer
     /// <param name="storageWidth">The video's coded size; a canvas of that size maps onto the video exactly.</param>
     public BitmapSubtitleRenderer(SubtitleCodec codec, byte[]? extradata, int storageWidth, int storageHeight)
     {
-        if (!FfmpegAudioDecoder.TryLoad(out string? error))
+        if (!FfmpegLibraries.TryLoad(out string? error))
         {
             throw new NotSupportedException($"FFmpeg libraries unavailable: {error}");
         }

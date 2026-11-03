@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Marquee.Data;
+using Marquee.Playback.Demuxing;
 using Marquee.Playback.Interop;
 using Marquee.Playback.Matroska;
 using Marquee.Shell;
@@ -32,7 +33,7 @@ internal sealed class DisplayMatcher
     {
         var video = request.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         bool hdr = video?.DoviProfile is not null || video?.ColorTransfer is "smpte2084" or "arib-std-b67";
-        if ((!needFrameRate && video is not null) || !MatroskaMediaSource.Handles(request.Location))
+        if ((!needFrameRate && video is not null) || !Demuxer.IsMatroska(request.Location))
         {
             return (hdr, 0);
         }

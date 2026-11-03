@@ -240,20 +240,21 @@ public sealed partial class MainWindow : Window
         _pendingMfAudio = audioLanguage;
         try
         {
-            if (MatroskaMediaSource.Handles(path) && NativeMkvBox.IsChecked != true)
+            if (DemuxerMediaSource.Handles(path) && NativeMkvBox.IsChecked != true)
             {
                 bool windowsDts = StoreCodecRuntime.Loaded && StoreCodecRuntime.HasDtsDecoder && !_options.FfmpegDts;
                 int? atmosTrack = TrueHdAtmosBox.IsChecked == true ? await Task.Run(() => FindTrueHdTrack(path, audioLanguage)) : null;
-                MatroskaMediaSource mkv = await Task.Run(() => MatroskaMediaSource.Open(path, !_options.NoDolbyVision, windowsDts, atmosTrack));
-                mkv.Error += message => _log.Line($"MKV reader error: {message}");
-                mkv.Trace += message => _log.Line($"MKV reader: {message}");
-                _log.Block("Marquee MKV reader", mkv.Description);
+                DemuxerMediaSource demuxed = await Task.Run(() => DemuxerMediaSource.Open(Demuxer.Open(path), !_options.NoDolbyVision, windowsDts, atmosTrack));
+                string reader = $"{demuxed.Demuxer.Container} reader";
+                demuxed.Error += message => _log.Line($"{reader} error: {message}");
+                demuxed.Trace += message => _log.Line($"{reader}: {message}");
+                _log.Block($"Marquee {reader}", demuxed.Description);
                 if (atmosTrack is int track)
                 {
-                    StartAtmos(path, mkv, track);
+                    StartAtmos(path, demuxed, track);
                 }
 
-                _mfSource = MediaSource.CreateFromMediaStreamSource(mkv.Source);
+                _mfSource = MediaSource.CreateFromMediaStreamSource(demuxed.Source);
             }
             else
             {
@@ -306,12 +307,12 @@ public sealed partial class MainWindow : Window
     /// <summary>The TrueHD track to play as Atmos objects: the preferred language's if there is one, else the first.</summary>
     private static int? FindTrueHdTrack(string path, string? language)
     {
-        using var demuxer = MatroskaDemuxer.Open(path);
+        using var demuxer = Demuxer.Open(path, 64 * 1024);
         var trueHd = demuxer.Tracks.Where(t => t.Kind == TrackKind.Audio && t.CodecId == "A_TRUEHD").ToList();
         return (trueHd.FirstOrDefault(t => language is not null && Language.Key(t.DisplayLanguage) == language) ?? trueHd.FirstOrDefault())?.Number;
     }
 
-    private void StartAtmos(string path, MatroskaMediaSource mkv, int track)
+    private void StartAtmos(string path, DemuxerMediaSource demuxed, int track)
     {
         _clock = new PresentationClock();
         _clock.Trace += message => _log.Line($"Atmos: {message}");
@@ -319,10 +320,10 @@ public sealed partial class MainWindow : Window
         _atmos.Output.Muted = _options.Mute;
         _atmos.Failed += message => _log.Line($"Atmos: {message}");
         _atmos.Trace += message => _log.Line($"Atmos: {message}");
-        mkv.Seeked += _clock.OnSeeked;
-        mkv.Seeked += _atmos.OnSeeked;
-        mkv.StartGate = _atmos.WaitUntilReadyAsync;
-        mkv.StartReleased += _clock.OnStartReleased;
+        demuxed.Seeked += _clock.OnSeeked;
+        demuxed.Seeked += _atmos.OnSeeked;
+        demuxed.StartGate = _atmos.WaitUntilReadyAsync;
+        demuxed.StartReleased += _clock.OnStartReleased;
         _atmosClockTimer = DispatcherQueue.CreateTimer();
         _atmosClockTimer.Interval = TimeSpan.FromMilliseconds(50);
         _atmosClockTimer.Tick += (_, _) => _clock?.Update(

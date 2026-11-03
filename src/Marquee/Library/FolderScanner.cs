@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Marquee.Data;
 using Marquee.Playback;
+using Marquee.Playback.Demuxing;
 using Marquee.Playback.Matroska;
 
 namespace Marquee.Library;
@@ -87,7 +88,7 @@ internal static class FolderScanner
                 };
             }
 
-            if (!alreadyProbed.Contains(item.Id) && MatroskaMediaSource.Handles(file.FullName) && Probe(file.FullName) is { } probe)
+            if (!alreadyProbed.Contains(item.Id) && Demuxer.IsMatroska(file.FullName) && Probe(file.FullName) is { } probe)
             {
                 probes[item.Id] = probe.Details;
                 item = item with

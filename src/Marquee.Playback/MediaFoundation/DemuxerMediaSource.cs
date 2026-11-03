@@ -1,16 +1,19 @@
 using System.Runtime.InteropServices.WindowsRuntime;
+using Marquee.Playback.Demuxing;
+using Marquee.Playback.Matroska;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 
-namespace Marquee.Playback.Matroska;
+namespace Marquee.Playback.MediaFoundation;
 
 /// <summary>
-/// Feeds a Matroska file to Media Foundation through a MediaStreamSource, setting the attributes
-/// Windows' own MP4 source sets and its MKV source doesn't: the Dolby Vision renderer-extension
-/// profile and RPU forwarding, plus HDR color metadata. Audio is passed through compressed so
-/// Windows' Dolby decoder (and its Atmos object output) does the decoding.
+/// Feeds a file Marquee demuxes itself (Matroska, or MPEG-TS through libavformat) to Media
+/// Foundation through a MediaStreamSource, setting the attributes Windows' own MP4 source sets and
+/// its MKV and MPEG-TS sources don't: the Dolby Vision renderer-extension profile and RPU
+/// forwarding, plus HDR color metadata. Audio is passed through compressed so Windows' Dolby
+/// decoder (and its Atmos object output) does the decoding.
 /// </summary>
-internal sealed class MatroskaMediaSource
+internal sealed class DemuxerMediaSource
 {
     // mfapi.h. The renderer-extension profile selects the Dolby Vision Extensions' video renderer
     // effect, which registers dvhe.05, dvhe.08 and dvav.09. NAL unit type 62 carries the DV RPU.
@@ -31,10 +34,10 @@ internal sealed class MatroskaMediaSource
 
     private static readonly HashSet<int> SupportedDolbyVisionProfiles = [5, 8];
 
-    private readonly MatroskaDemuxer _demuxer;
-    private readonly MatroskaTrack _video;
+    private readonly IDemuxer _demuxer;
+    private readonly MediaTrack _video;
     private readonly NalConverter _converter;
-    private readonly Dictionary<IMediaStreamDescriptor, MatroskaTrack> _tracksByDescriptor = new();
+    private readonly Dictionary<IMediaStreamDescriptor, MediaTrack> _tracksByDescriptor = new();
     private readonly Dictionary<int, FfmpegAudioDecoder> _decoders = new();
     private long _lastAudioTicks;
 
@@ -56,7 +59,7 @@ internal sealed class MatroskaMediaSource
     /// <summary>Raised when a (re)start is released (at once, or once <see cref="StartGate"/> completes), just before samples flow.</summary>
     public event Action? StartReleased;
 
-    internal MatroskaDemuxer Demuxer => _demuxer;
+    internal IDemuxer Demuxer => _demuxer;
 
     private readonly Dictionary<int, int> _sampleCounts = new();
 
@@ -67,11 +70,11 @@ internal sealed class MatroskaMediaSource
     private readonly HashSet<int> _splitLaces = new();
     private readonly Dictionary<int, Queue<(long Ticks, long Duration, byte[] Data)>> _pendingFrames = new();
 
-    private MatroskaMediaSource(string path, bool requestDolbyVision, bool windowsDts, int? externalAudioTrack, bool audio)
+    private DemuxerMediaSource(IDemuxer demuxer, bool requestDolbyVision, bool windowsDts, int? externalAudioTrack, bool audio)
     {
         _requestDolbyVision = requestDolbyVision;
         _windowsDts = windowsDts;
-        _demuxer = MatroskaDemuxer.Open(path);
+        _demuxer = demuxer;
         _video = _demuxer.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video)
                  ?? throw new NotSupportedException("No video track");
         _converter = NalConverter.Create(_video);
@@ -124,7 +127,7 @@ internal sealed class MatroskaMediaSource
         }
 
         Source.Duration = _demuxer.Duration;
-        Source.CanSeek = _demuxer.Cues.Count > 0;
+        Source.CanSeek = _demuxer.CanSeek;
         Source.BufferTime = TimeSpan.FromSeconds(2);
         Source.Starting += OnStarting;
         Source.SampleRequested += OnSampleRequested;
@@ -137,9 +140,10 @@ internal sealed class MatroskaMediaSource
                 decoder.Dispose();
             }
         };
-        Description.Add($"duration {_demuxer.Duration:hh\\:mm\\:ss}, {_demuxer.Cues.Count} cues");
+        Description.Add($"{_demuxer.Container}, duration {_demuxer.Duration:hh\\:mm\\:ss}, {_demuxer.SeekDescription}");
     }
 
+    /// <param name="demuxer">The file's reader (see <see cref="Demuxing.Demuxer.Open"/>); the source owns it from here.</param>
     /// <param name="windowsDts">
     /// Pass DTS through to Windows (DTS Sound Unbound's DTSXDecoder, which can output DTS:X objects)
     /// instead of decoding it with FFmpeg. Only works once the Store codec runtime is preloaded.
@@ -149,12 +153,24 @@ internal sealed class MatroskaMediaSource
     /// player outside Media Foundation (see <see cref="Demuxer"/> and <see cref="Seeked"/>).
     /// </param>
     /// <param name="audio">False gives Media Foundation video only, with no audio at all.</param>
-    public static MatroskaMediaSource Open(string path, bool requestDolbyVision = true, bool windowsDts = false, int? externalAudioTrack = null, bool audio = true) =>
-        new(path, requestDolbyVision, windowsDts, externalAudioTrack, audio);
+    public static DemuxerMediaSource Open(IDemuxer demuxer, bool requestDolbyVision = true, bool windowsDts = false, int? externalAudioTrack = null, bool audio = true)
+    {
+        try
+        {
+            return new DemuxerMediaSource(demuxer, requestDolbyVision, windowsDts, externalAudioTrack, audio);
+        }
+        catch
+        {
+            demuxer.Dispose();
+            throw;
+        }
+    }
 
-    public static bool Handles(string location) => IO.MediaFile.Extension(location) is ".mkv" or ".mk3d";
+    /// <summary>Whether Marquee demuxes this file itself for Media Foundation, rather than leaving it to Windows' own source (MP4).</summary>
+    public static bool Handles(string location) =>
+        Demuxing.Demuxer.IsMatroska(location) || Demuxing.Demuxer.IsTransportStream(location) && FfmpegLibraries.CanDemux;
 
-    private VideoEncodingProperties VideoProperties(MatroskaTrack track)
+    private VideoEncodingProperties VideoProperties(MediaTrack track)
     {
         var properties = track.CodecId switch
         {
@@ -171,7 +187,10 @@ internal sealed class MatroskaMediaSource
         }
 
         properties.ProfileId = _converter.ProfileId;
-        properties.Properties[MF_MT_MPEG_SEQUENCE_HEADER] = _converter.ParameterSets;
+        if (_converter.ParameterSets.Length > 0)
+        {
+            properties.Properties[MF_MT_MPEG_SEQUENCE_HEADER] = _converter.ParameterSets;
+        }
 
         ApplyColour(properties, track);
         if (track.DolbyVision is { } dv)
@@ -208,7 +227,7 @@ internal sealed class MatroskaMediaSource
         Description.Add($"Dolby Vision renderer extension requested: {profile}");
     }
 
-    private void ApplyColour(VideoEncodingProperties properties, MatroskaTrack track)
+    private void ApplyColour(VideoEncodingProperties properties, MediaTrack track)
     {
         ColourInfo? c = track.Colour;
         // A DV profile 5 base layer has no HDR10 fallback: it is PQ / BT.2020 in Dolby's IPT space.
@@ -253,7 +272,7 @@ internal sealed class MatroskaMediaSource
         SetIfPresent(properties, MF_MT_MAX_MASTERING_LUMINANCE, c?.MasteringMax is double max ? (uint)Math.Round(max) : null);
         SetIfPresent(properties, MF_MT_MIN_MASTERING_LUMINANCE, c?.MasteringMin is double min ? (uint)Math.Round(min * 10000) : null);
 
-        Description.Add($"color (Matroska codes): transfer {c?.Transfer?.ToString() ?? "—"}, primaries {c?.Primaries?.ToString() ?? "—"}, " +
+        Description.Add($"color (ISO/IEC 23091-2 codes): transfer {c?.Transfer?.ToString() ?? "—"}, primaries {c?.Primaries?.ToString() ?? "—"}, " +
                         $"matrix {c?.Matrix?.ToString() ?? "—"}, range {c?.Range?.ToString() ?? "—"}, MaxCLL {c?.MaxCll?.ToString() ?? "—"}, " +
                         $"mastering {c?.MasteringMin?.ToString("0.####") ?? "—"}–{c?.MasteringMax?.ToString("0") ?? "—"} nits");
     }
@@ -266,7 +285,7 @@ internal sealed class MatroskaMediaSource
         }
     }
 
-    private AudioEncodingProperties? AudioProperties(MatroskaTrack track)
+    private AudioEncodingProperties? AudioProperties(MediaTrack track)
     {
         uint rate = (uint)Math.Round(track.SampleRate);
         uint channels = (uint)track.Channels;
@@ -284,6 +303,8 @@ internal sealed class MatroskaMediaSource
                 var aac = AudioEncodingProperties.CreateAac(rate, channels, 0);
                 aac.SetFormatUserData(config);
                 return aac;
+            case "A_AAC":
+                return AudioEncodingProperties.CreateAacAdts(rate, channels, 0);
             default:
                 return null;
         }
@@ -293,10 +314,10 @@ internal sealed class MatroskaMediaSource
     /// Sets up FFmpeg decoding for a codec Windows can't decode, decoding the track's first packets
     /// to learn its real output format (rate, channel count and layout) before Media Foundation sees it.
     /// </summary>
-    private AudioEncodingProperties? DecodedAudioProperties(MatroskaTrack track, string label)
+    private AudioEncodingProperties? DecodedAudioProperties(MediaTrack track, string label)
     {
         string prefix = $"audio #{track.Number} [{track.DisplayLanguage}] {track.CodecId} '{label}'";
-        if (!FfmpegAudioDecoder.TryLoad(out string? error))
+        if (!FfmpegLibraries.TryLoad(out string? error))
         {
             Description.Add($"{prefix} skipped: FFmpeg libraries unavailable ({error})");
             return null;
@@ -453,7 +474,7 @@ internal sealed class MatroskaMediaSource
     /// TrueHD packets hold a single 40-sample access unit, so one sample per packet would mean
     /// over a thousand tiny samples a second.
     /// </summary>
-    private void RequestDecodedSample(MediaStreamSourceSampleRequestedEventArgs args, MatroskaTrack track, FfmpegAudioDecoder decoder)
+    private void RequestDecodedSample(MediaStreamSourceSampleRequestedEventArgs args, MediaTrack track, FfmpegAudioDecoder decoder)
     {
         const int minimumFrames = 1920;
         var pcm = new MemoryStream();
@@ -511,7 +532,7 @@ internal sealed class MatroskaMediaSource
     }
 
     /// <summary>Hands over laced frames one at a time, each with its own share of the block's duration.</summary>
-    private void RequestSplitFrameSample(MediaStreamSourceSampleRequestedEventArgs args, MatroskaTrack track)
+    private void RequestSplitFrameSample(MediaStreamSourceSampleRequestedEventArgs args, MediaTrack track)
     {
         (long Ticks, long Duration, byte[] Data) next;
         lock (_pendingFrames)
@@ -591,7 +612,7 @@ internal sealed class MatroskaMediaSource
     }
 
     // The projection may hand back a different wrapper for the same descriptor, so fall back to its Name.
-    private MatroskaTrack? Resolve(IMediaStreamDescriptor? descriptor)
+    private MediaTrack? Resolve(IMediaStreamDescriptor? descriptor)
     {
         if (descriptor is null)
         {
@@ -614,10 +635,14 @@ internal sealed class MatroskaMediaSource
     /// <summary>
     /// Matroska stores H.264/HEVC as length-prefixed NAL units with parameter sets in CodecPrivate;
     /// Media Foundation's decoders take Annex B start codes, with parameter sets before keyframes.
+    /// MPEG-TS video is Annex B already, but goes through here too for the Dolby Vision rewrite.
     /// </summary>
     private sealed class NalConverter
     {
         private static readonly byte[] StartCode = [0, 0, 0, 1];
+        private static readonly byte[] ShortStartCode = [0, 0, 1];
+
+        /// <summary>The NAL unit length field's size in bytes, or 0 for Annex B input.</summary>
         private readonly int _lengthSize;
         private readonly bool _hevc;
 
@@ -644,11 +669,17 @@ internal sealed class MatroskaMediaSource
             _hevc = hevc;
         }
 
-        public static NalConverter Create(MatroskaTrack track)
+        public static NalConverter Create(MediaTrack track)
         {
-            byte[] config = track.CodecPrivate ?? throw new InvalidDataException("Video track has no CodecPrivate");
+            bool hevc = track.CodecId == "V_MPEGH/ISO/HEVC";
+            byte[] config = track.CodecPrivate ?? [];
+            if (config is [] or [0, 0, 1, ..] or [0, 0, 0, 1, ..])
+            {
+                return new NalConverter(0, config, AnnexBProfile(config, hevc), hevc);
+            }
+
             var sets = new MemoryStream();
-            if (track.CodecId == "V_MPEGH/ISO/HEVC")
+            if (hevc)
             {
                 int pos = 23;
                 for (int array = 0, arrays = config[22]; array < arrays; array++)
@@ -689,10 +720,31 @@ internal sealed class MatroskaMediaSource
             return new NalConverter((config[4] & 3) + 1, sets.ToArray(), config[1], hevc: false);
         }
 
-        public byte[] ToAnnexB(byte[] data, bool keyFrame)
+        /// <summary>general_profile_idc (HEVC) or profile_idc (H.264) from the SPS among Annex B parameter sets, else 0.</summary>
+        private static int AnnexBProfile(byte[] parameterSets, bool hevc)
+        {
+            foreach (var unit in AnnexBUnits(parameterSets))
+            {
+                var nal = unit.Span;
+                if (hevc && nal.Length > 3 && ((nal[0] >> 1) & 0x3F) == 33)
+                {
+                    return nal[3] & 0x1F;
+                }
+
+                if (!hevc && nal.Length > 1 && (nal[0] & 0x1F) == 7)
+                {
+                    return nal[1];
+                }
+            }
+
+            return 0;
+        }
+
+        private IEnumerable<ReadOnlyMemory<byte>> Units(byte[] data) => _lengthSize == 0 ? AnnexBUnits(data) : LengthPrefixedUnits(data);
+
+        private List<ReadOnlyMemory<byte>> LengthPrefixedUnits(byte[] data)
         {
             var units = new List<ReadOnlyMemory<byte>>();
-            bool hasParameterSets = false;
             for (int pos = 0; pos + _lengthSize <= data.Length;)
             {
                 int length = 0;
@@ -707,11 +759,57 @@ internal sealed class MatroskaMediaSource
                     break;
                 }
 
-                int type = _hevc ? (data[pos] >> 1) & 0x3F : data[pos] & 0x1F;
-                hasParameterSets |= _hevc ? type == 32 : type == 7;
-                var unit = data.AsMemory(pos, length);
+                units.Add(data.AsMemory(pos, length));
                 pos += length;
+            }
 
+            return units;
+        }
+
+        /// <summary>The NAL units between start codes, without the zero bytes that may pad before the next one.</summary>
+        private static List<ReadOnlyMemory<byte>> AnnexBUnits(byte[] data)
+        {
+            var units = new List<ReadOnlyMemory<byte>>();
+            int start = -1;
+            int pos = 0;
+            while (pos < data.Length)
+            {
+                int found = data.AsSpan(pos).IndexOf(ShortStartCode);
+                int end = found < 0 ? data.Length : pos + found;
+                if (start >= 0)
+                {
+                    int last = end;
+                    while (last > start && data[last - 1] == 0)
+                    {
+                        last--;
+                    }
+
+                    if (last > start)
+                    {
+                        units.Add(data.AsMemory(start, last - start));
+                    }
+                }
+
+                if (found < 0)
+                {
+                    break;
+                }
+
+                start = pos = end + ShortStartCode.Length;
+            }
+
+            return units;
+        }
+
+        public byte[] ToAnnexB(byte[] data, bool keyFrame)
+        {
+            var units = new List<ReadOnlyMemory<byte>>();
+            bool hasParameterSets = false;
+            foreach (var unit in Units(data))
+            {
+                byte header = unit.Span[0];
+                int type = _hevc ? (header >> 1) & 0x3F : header & 0x1F;
+                hasParameterSets |= _hevc ? type == 32 : type == 7;
                 if (_hevc && ConvertProfile7 && type == 63)
                 {
                     _droppedEnhancementUnits++;

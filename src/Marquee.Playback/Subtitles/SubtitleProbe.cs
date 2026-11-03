@@ -1,16 +1,18 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
+using Marquee.Playback.Demuxing;
 using Marquee.Playback.Matroska;
+using Marquee.Playback.MediaFoundation;
 using Windows.Graphics.Imaging;
 
 namespace Marquee.Playback.Subtitles;
 
 /// <summary>
-/// Headless check of the subtitle pipeline on a real file: lists the subtitle tracks, their index
-/// coverage and attached fonts, then reads each track around a time through the same source and
-/// renderer playback uses and saves what would be on screen as a PNG. A subtitle file (.srt, .vtt,
-/// .ass, .ssa) instead has its first cues from that time rendered over a 1080p video.
+/// Headless check of the subtitle pipeline on a real file (MKV, MP4 or MPEG-TS): lists the subtitle
+/// tracks, their index coverage and attached fonts, then reads each track around a time through the
+/// same source and renderer playback uses and saves what would be on screen as a PNG. A subtitle
+/// file (.srt, .vtt, .ass, .ssa) instead has its first cues from that time rendered over a 1080p video.
 /// </summary>
 internal static class SubtitleProbe
 {
@@ -24,24 +26,31 @@ internal static class SubtitleProbe
         }
 
         var report = new StringBuilder();
-        using var demuxer = MatroskaDemuxer.Open(location, 64 * 1024);
+        using var demuxer = Demuxer.Open(location, 64 * 1024);
+        var mkv = demuxer as MatroskaDemuxer;
         var video = demuxer.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video);
-        var attachments = demuxer.ReadAttachments();
+        var attachments = mkv?.ReadAttachments() ?? [];
         report.AppendLine($"{location}");
-        report.AppendLine($"video {video?.CodecId} {video?.Width}x{video?.Height}, {demuxer.Cues.Count} cues, {attachments.Count} attachments: " +
-                          string.Join(", ", attachments.Select(a => $"{a.Name} ({a.MimeType}, {a.Data.Length / 1024} KB)")));
+        report.AppendLine($"{demuxer.Container}: video {video?.CodecId} {video?.Width}x{video?.Height}, {demuxer.SeekDescription}, {attachments.Count} attachments" +
+                          (attachments.Count > 0 ? ": " + string.Join(", ", attachments.Select(a => $"{a.Name} ({a.MimeType}, {a.Data.Length / 1024} KB)")) : ""));
         var layout = SubtitleLayout.Fit(width, height, video?.Width ?? width, video?.Height ?? height) with { BottomReserve = reserve };
 
         foreach (var track in demuxer.Tracks.Where(t => t.Kind == TrackKind.Subtitle && (onlyTrack is null || t.Number == onlyTrack)))
         {
-            var cues = demuxer.Cues.Where(c => c.Track == track.Number).ToList();
+            string index = "";
+            if (mkv is not null)
+            {
+                var cues = mkv.Cues.Where(c => c.Track == track.Number).ToList();
+                index = $", compression={mkv.Compression(track.Number)?.Algorithm.ToString() ?? "none"}; {cues.Count} cue entries, " +
+                        $"{cues.Count(c => c.RelativePosition > 0)} with a relative position, {cues.Count(c => c.DurationTicks > 0)} with a duration";
+            }
+
             report.AppendLine();
             report.AppendLine($"#{track.Number} {track.CodecId} [{track.DisplayLanguage}] '{track.Name}' default={track.IsDefault} forced={track.IsForced} " +
-                              $"private={track.CodecPrivate?.Length ?? 0} B, compression={track.CompressionAlgorithm?.ToString() ?? "none"}; " +
-                              $"{cues.Count} cue entries, {cues.Count(c => c.RelativePosition > 0)} with a relative position, {cues.Count(c => c.DurationTicks > 0)} with a duration");
+                              $"private={track.CodecPrivate?.Length ?? 0} B{index}");
             try
             {
-                report.AppendLine(await RenderTrackAsync(location, track, video, demuxer, layout, at, outputFolder));
+                report.AppendLine(await RenderTrackAsync(location, track, video, attachments, layout, at, outputFolder));
             }
             catch (Exception ex)
             {
@@ -52,7 +61,7 @@ internal static class SubtitleProbe
         return report.ToString();
     }
 
-    private static async Task<string> RenderTrackAsync(string location, MatroskaTrack track, MatroskaTrack? video, MatroskaDemuxer demuxer,
+    private static async Task<string> RenderTrackAsync(string location, MediaTrack track, MediaTrack? video, List<MatroskaAttachment> attachments,
         SubtitleLayout layout, TimeSpan at, string outputFolder)
     {
         var codec = SubtitleCodecs.FromMatroska(track.CodecId);
@@ -62,15 +71,16 @@ internal static class SubtitleProbe
         }
 
         var log = new StringBuilder();
-        using var playbackDemuxer = MatroskaDemuxer.Open(location);
-        using var source = new MatroskaSubtitleSource(location, track.Number, playbackDemuxer);
+        using IDemuxer? playbackDemuxer = DemuxerMediaSource.Handles(location) ? Demuxer.Open(location) : null;
+        var opened = SubtitleOpener.OpenSource(location, track.Number, playbackDemuxer, message => log.AppendLine($"    {message}"));
+        using var source = opened.Source;
         var stopwatch = Stopwatch.StartNew();
         source.Focus(at.Ticks);
-        if (!source.Indexed && video is not null)
+        if (source is TappedSubtitleSource && playbackDemuxer is not null && video is not null)
         {
             playbackDemuxer.Expose(video.Number, active: true);
-            playbackDemuxer.Seek(at - TimeSpan.FromSeconds(30), video.Number);
-            while (playbackDemuxer.Next(video.Number) is { } packet && packet.TimeTicks < (at + TimeSpan.FromSeconds(60)).Ticks)
+            playbackDemuxer.Seek(at - TimeSpan.FromSeconds(10), video.Number);
+            while (playbackDemuxer.Next(video.Number) is { } packet && packet.TimeTicks < (at + TimeSpan.FromSeconds(30)).Ticks)
             {
             }
         }
@@ -88,7 +98,7 @@ internal static class SubtitleProbe
             await Task.Delay(50);
         }
 
-        log.AppendLine($"  {(source.Indexed ? "indexed" : "following playback")}: {packets.Count} packets around {at:hh\\:mm\\:ss} in {stopwatch.ElapsedMilliseconds - 1500} ms");
+        log.Insert(0, $"  {opened.Reading}: {packets.Count} packets around {at:hh\\:mm\\:ss} in {stopwatch.ElapsedMilliseconds - 1500} ms\n");
         packets.Sort((a, b) => a.TimeTicks.CompareTo(b.TimeTicks));
         foreach (var p in packets.Where(p => p.TimeTicks >= at.Ticks - TimeSpan.TicksPerSecond * 5).Take(6))
         {
@@ -97,7 +107,7 @@ internal static class SubtitleProbe
         }
 
         int width = video?.Width ?? 0, height = video?.Height ?? 0;
-        List<MatroskaAttachment> fonts = codec == SubtitleCodec.Ass ? demuxer.ReadAttachments() : [];
+        List<MatroskaAttachment> fonts = codec == SubtitleCodec.Ass ? attachments : [];
         using ISubtitleRenderer renderer = codec!.Value.IsBitmap()
             ? new BitmapSubtitleRenderer(codec.Value, track.CodecPrivate, width, height)
             : new AssRenderer(codec.Value, track.CodecPrivate, fonts, width, height, message => log.AppendLine($"    libass: {message}"));

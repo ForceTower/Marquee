@@ -59,7 +59,7 @@ Cargo and NuGet fetch them, each under its own license.
 | Component | License | Source |
 | --- | --- | --- |
 | mpv (libmpv) | GPL-2.0-or-later (`tools/fetch-libmpv.ps1` downloads a GPL build) | https://mpv.io, builds by https://github.com/shinchiro/mpv-winbuild-cmake |
-| FFmpeg (avcodec, avutil, swresample) | LGPL-2.1-or-later (shared LGPL build) | https://ffmpeg.org, builds by https://github.com/BtbN/FFmpeg-Builds |
+| FFmpeg (avcodec, avformat, avutil, swresample) | LGPL-2.1-or-later (shared LGPL build) | https://ffmpeg.org, builds by https://github.com/BtbN/FFmpeg-Builds |
 | `truehd` crate | Apache-2.0 | https://github.com/truehdd/truehdd |
 | `dolby_vision` crate | MIT | https://github.com/quietvoid/dovi_tool |
 | libass | ISC (built into `libass.dll` by `tools/build-libass.ps1`) | https://github.com/libass/libass |

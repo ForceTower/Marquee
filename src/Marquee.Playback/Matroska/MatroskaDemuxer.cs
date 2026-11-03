@@ -1,75 +1,6 @@
+using Marquee.Playback.Demuxing;
+
 namespace Marquee.Playback.Matroska;
-
-internal enum TrackKind
-{
-    Video = 1,
-    Audio = 2,
-    Subtitle = 17,
-}
-
-internal sealed record ColourInfo(int? Matrix, int? Range, int? Transfer, int? Primaries, int? MaxCll, int? MaxFall,
-    double? MasteringMax, double? MasteringMin);
-
-/// <summary>DOVIDecoderConfigurationRecord from a dvcC/dvvC block addition mapping.</summary>
-internal sealed record DolbyVisionConfig(int Profile, int Level, bool RpuPresent, bool ElPresent, bool BlPresent, int Compatibility)
-{
-    public static DolbyVisionConfig Parse(byte[] record)
-    {
-        int bits = (record[2] << 8) | record[3];
-        return new DolbyVisionConfig(
-            Profile: bits >> 9,
-            Level: (bits >> 3) & 0x3F,
-            RpuPresent: ((bits >> 2) & 1) == 1,
-            ElPresent: ((bits >> 1) & 1) == 1,
-            BlPresent: (bits & 1) == 1,
-            Compatibility: record.Length > 4 ? record[4] >> 4 : 0);
-    }
-
-    public override string ToString() =>
-        $"Dolby Vision profile {Profile}, level {Level}, BL compat {Compatibility}" +
-        $"{(RpuPresent ? ", RPU" : "")}{(ElPresent ? ", EL" : "")}";
-}
-
-internal sealed class MatroskaTrack
-{
-    public int Number;
-    public TrackKind Kind;
-    public string CodecId = "";
-    public byte[]? CodecPrivate;
-    public string? Name;
-    public string Language = "eng";
-    public string? LanguageBcp47;
-    public bool IsDefault = true;
-    public bool IsForced;
-    public long DefaultDurationNs;
-    public int Width;
-    public int Height;
-    public double SampleRate;
-    public int Channels;
-    public ColourInfo? Colour;
-    public DolbyVisionConfig? DolbyVision;
-    public int? CompressionAlgorithm;
-    public byte[]? CompressionSettings;
-
-    public string DisplayLanguage => LanguageBcp47 ?? Language;
-}
-
-/// <summary>
-/// One block's payload. Laced frames are concatenated in <see cref="Data"/>, which Windows' decoders
-/// accept; <see cref="FrameSizes"/> keeps the boundaries for decoders that take one frame at a time.
-/// </summary>
-internal sealed record MatroskaPacket(int Track, long TimeTicks, long DurationTicks, bool KeyFrame, byte[] Data, int[] FrameSizes)
-{
-    public IEnumerable<ReadOnlyMemory<byte>> Frames()
-    {
-        int offset = 0;
-        foreach (int size in FrameSizes)
-        {
-            yield return Data.AsMemory(offset, size);
-            offset += size;
-        }
-    }
-}
 
 /// <summary>
 /// An index entry. Entries for subtitle blocks (mkvmerge writes one per block) also locate the block
@@ -83,17 +14,18 @@ internal sealed record MatroskaAttachment(string Name, string? MimeType, byte[] 
 /// <summary>
 /// A minimal Matroska demuxer: track metadata, cues, and block reading with lacing and header
 /// stripping. Clusters are read as a flat element stream so unknown-size clusters work too.
-/// Thread-safe: Media Foundation requests audio and video samples from different threads.
 /// </summary>
-internal sealed class MatroskaDemuxer : IDisposable
+internal sealed class MatroskaDemuxer : IDemuxer
 {
     private const int MaxQueuedInactivePackets = 400;
 
     private readonly EbmlStream _s;
     private readonly object _gate = new();
-    private readonly Dictionary<int, Queue<MatroskaPacket>> _queues = new();
+    private readonly List<MediaTrack> _tracks = [];
+    private readonly Dictionary<int, (int Algorithm, byte[]? Settings)> _compression = new();
+    private readonly Dictionary<int, Queue<MediaPacket>> _queues = new();
     private readonly HashSet<int> _active = new();
-    private readonly Dictionary<int, Action<MatroskaPacket>> _taps = new();
+    private readonly Dictionary<int, Action<MediaPacket>> _taps = new();
     private readonly Dictionary<long, long> _clusterDataStarts = new();
     private long _segmentStart;
     private long _segmentEnd;
@@ -103,9 +35,12 @@ internal sealed class MatroskaDemuxer : IDisposable
     private long _clusterTimestamp;
     private bool _endOfFile;
 
-    public List<MatroskaTrack> Tracks { get; } = [];
+    public string Container => "Matroska";
+    public IReadOnlyList<MediaTrack> Tracks => _tracks;
     public List<CuePoint> Cues { get; } = [];
     public TimeSpan Duration { get; private set; }
+    public bool CanSeek => Cues.Count > 0;
+    public string SeekDescription => $"{Cues.Count} cues";
 
     private MatroskaDemuxer(string path, int bufferSize)
     {
@@ -119,12 +54,11 @@ internal sealed class MatroskaDemuxer : IDisposable
     /// </param>
     public static MatroskaDemuxer Open(string path, int bufferSize = 1 << 20) => new(path, bufferSize);
 
-    /// <summary>Tracks whose packets are queued for delivery; packets for any other track are dropped.</summary>
     public void Expose(int track, bool active)
     {
         lock (_gate)
         {
-            _queues.TryAdd(track, new Queue<MatroskaPacket>());
+            _queues.TryAdd(track, new Queue<MediaPacket>());
             SetActive(track, active);
         }
     }
@@ -144,7 +78,6 @@ internal sealed class MatroskaDemuxer : IDisposable
         }
     }
 
-    /// <summary>Drops queued packets that start before <paramref name="timeTicks"/> (used after an audio switch).</summary>
     public void DropBefore(int track, long timeTicks)
     {
         lock (_gate)
@@ -159,12 +92,7 @@ internal sealed class MatroskaDemuxer : IDisposable
         }
     }
 
-    /// <summary>
-    /// Hands packets of <paramref name="track"/> to <paramref name="sink"/> as reading for other
-    /// tracks passes them, instead of queuing them (null stops). The sink runs under the demuxer's
-    /// lock, so it must only store the packet.
-    /// </summary>
-    public void Tap(int track, Action<MatroskaPacket>? sink)
+    public void Tap(int track, Action<MediaPacket>? sink)
     {
         lock (_gate)
         {
@@ -179,7 +107,7 @@ internal sealed class MatroskaDemuxer : IDisposable
         }
     }
 
-    public MatroskaPacket? Next(int track)
+    public MediaPacket? Next(int track)
     {
         lock (_gate)
         {
@@ -210,17 +138,14 @@ internal sealed class MatroskaDemuxer : IDisposable
         }
     }
 
-    /// <summary>
-    /// Reads the first <paramref name="count"/> packets of one track from the start of the file,
-    /// without disturbing playback state. Used to probe a decoder's real output format.
-    /// </summary>
-    public List<MatroskaPacket> FirstPackets(int track, int count)
+    /// <summary>Doesn't disturb playback state: reading continues where it was.</summary>
+    public List<MediaPacket> FirstPackets(int track, int count)
     {
         lock (_gate)
         {
             long position = _s.Position;
             long clusterTimestamp = _clusterTimestamp;
-            var packets = new List<MatroskaPacket>();
+            var packets = new List<MediaPacket>();
             try
             {
                 _s.Position = _firstCluster;
@@ -244,7 +169,7 @@ internal sealed class MatroskaDemuxer : IDisposable
     /// Reads the block a cue entry with a <see cref="CuePoint.RelativePosition"/> points at, without
     /// disturbing playback state. Null if the entry doesn't lead to a block of its track.
     /// </summary>
-    public MatroskaPacket? ReadPacketAt(CuePoint cue)
+    public MediaPacket? ReadPacketAt(CuePoint cue)
     {
         lock (_gate)
         {
@@ -272,7 +197,7 @@ internal sealed class MatroskaDemuxer : IDisposable
 
                 // The cue's time is the block's own, so the cluster's timestamp isn't needed.
                 _clusterTimestamp = 0;
-                MatroskaPacket? packet = blockId == Ids.SimpleBlock
+                MediaPacket? packet = blockId == Ids.SimpleBlock
                     ? PeekTrackNumber() == cue.Track ? BuildPacket(_s.ReadBytes(size), simple: true, blockDuration: null, hasReference: false) : null
                     : ReadBlockGroup(_s.Position + size, t => t == cue.Track);
                 if (packet is null)
@@ -345,10 +270,12 @@ internal sealed class MatroskaDemuxer : IDisposable
         return files;
     }
 
-    public int? FirstVideoTrack => Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video)?.Number;
-
-    /// <summary>Seeks to the last cue at or before <paramref name="target"/> and returns its time.</summary>
-    public TimeSpan Seek(TimeSpan target, int videoTrack)
+    /// <summary>
+    /// Seeks to the cluster of the last cue at or before <paramref name="target"/> and returns its
+    /// time. Cues are usually written for video only, so a track without its own (audio) uses the
+    /// video's, whose clusters start with a keyframe.
+    /// </summary>
+    public TimeSpan Seek(TimeSpan target, int track)
     {
         lock (_gate)
         {
@@ -359,7 +286,13 @@ internal sealed class MatroskaDemuxer : IDisposable
 
             _endOfFile = false;
             _clusterTimestamp = 0;
-            var candidates = Cues.Where(c => c.Track == videoTrack).ToList();
+            int? video = Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video)?.Number;
+            var candidates = Cues.Where(c => c.Track == track).ToList();
+            if (candidates.Count == 0)
+            {
+                candidates = Cues.Where(c => c.Track == video).ToList();
+            }
+
             if (candidates.Count == 0)
             {
                 candidates = Cues;
@@ -443,7 +376,7 @@ internal sealed class MatroskaDemuxer : IDisposable
                     {
                         if (child == Ids.TrackEntry)
                         {
-                            Tracks.Add(ParseTrack(_s.Position + childSize));
+                            _tracks.Add(ParseTrack(_s.Position + childSize));
                         }
                     });
                     break;
@@ -514,9 +447,10 @@ internal sealed class MatroskaDemuxer : IDisposable
         return (cues, attachments);
     }
 
-    private MatroskaTrack ParseTrack(long end)
+    private MediaTrack ParseTrack(long end)
     {
-        var track = new MatroskaTrack();
+        var track = new MediaTrack();
+        (int, byte[]?)? compression = null;
         _s.ForEachChild(end, (id, size) =>
         {
             switch (id)
@@ -533,14 +467,20 @@ internal sealed class MatroskaDemuxer : IDisposable
                 case Ids.CodecPrivate: track.CodecPrivate = _s.ReadBytes(size); break;
                 case Ids.Video: ParseVideo(track, _s.Position + size); break;
                 case Ids.Audio: ParseAudio(track, _s.Position + size); break;
-                case Ids.ContentEncodings: ParseContentEncodings(track, _s.Position + size); break;
+                case Ids.ContentEncodings: compression = ParseContentEncodings(_s.Position + size); break;
                 case Ids.BlockAdditionMapping: ParseBlockAdditionMapping(track, _s.Position + size); break;
             }
         });
+
+        if (compression is { } c)
+        {
+            _compression[track.Number] = c;
+        }
+
         return track;
     }
 
-    private void ParseVideo(MatroskaTrack track, long end)
+    private void ParseVideo(MediaTrack track, long end)
     {
         _s.ForEachChild(end, (id, size) =>
         {
@@ -585,7 +525,7 @@ internal sealed class MatroskaDemuxer : IDisposable
         return new ColourInfo(matrix, range, transfer, primaries, maxCll, maxFall, masteringMax, masteringMin);
     }
 
-    private void ParseAudio(MatroskaTrack track, long end)
+    private void ParseAudio(MediaTrack track, long end)
     {
         _s.ForEachChild(end, (id, size) =>
         {
@@ -600,8 +540,9 @@ internal sealed class MatroskaDemuxer : IDisposable
         });
     }
 
-    private void ParseContentEncodings(MatroskaTrack track, long end)
+    private (int Algorithm, byte[]? Settings)? ParseContentEncodings(long end)
     {
+        (int, byte[]?)? compression = null;
         _s.ForEachChild(end, (id, size) =>
         {
             if (id != Ids.ContentEncoding)
@@ -630,13 +571,17 @@ internal sealed class MatroskaDemuxer : IDisposable
                     }
                 });
 
-                track.CompressionAlgorithm = (int)algorithm;
-                track.CompressionSettings = settings;
+                compression = ((int)algorithm, settings);
             });
         });
+        return compression;
     }
 
-    private void ParseBlockAdditionMapping(MatroskaTrack track, long end)
+    /// <summary>A track's content compression (0 zlib, 3 header stripping), if any.</summary>
+    public (int Algorithm, byte[]? Settings)? Compression(int track) =>
+        _compression.TryGetValue(track, out var compression) ? compression : null;
+
+    private void ParseBlockAdditionMapping(MediaTrack track, long end)
     {
         uint type = 0;
         byte[]? extra = null;
@@ -701,7 +646,7 @@ internal sealed class MatroskaDemuxer : IDisposable
         });
     }
 
-    private MatroskaPacket? ReadNextPacket(Func<int, bool> wanted)
+    private MediaPacket? ReadNextPacket(Func<int, bool> wanted)
     {
         while (_s.Position < _segmentEnd)
         {
@@ -748,7 +693,7 @@ internal sealed class MatroskaDemuxer : IDisposable
         return null;
     }
 
-    private MatroskaPacket? ReadBlockGroup(long end, Func<int, bool> wanted)
+    private MediaPacket? ReadBlockGroup(long end, Func<int, bool> wanted)
     {
         byte[]? block = null;
         long? duration = null;
@@ -779,7 +724,7 @@ internal sealed class MatroskaDemuxer : IDisposable
         return track;
     }
 
-    private MatroskaPacket? BuildPacket(byte[] raw, bool simple, long? blockDuration, bool hasReference)
+    private MediaPacket? BuildPacket(byte[] raw, bool simple, long? blockDuration, bool hasReference)
     {
         int pos = 0;
         int trackNumber = (int)ReadVint(raw, ref pos);
@@ -789,14 +734,14 @@ internal sealed class MatroskaDemuxer : IDisposable
 
         var track = Tracks.First(t => t.Number == trackNumber);
         List<(int Offset, int Length)> frames = SplitLaces(raw, pos, (flags >> 1) & 3);
-        (byte[] data, int[] sizes) = Concatenate(raw, frames, track);
+        (byte[] data, int[] sizes) = Concatenate(raw, frames, trackNumber, Compression(trackNumber));
 
         long timeTicks = (_clusterTimestamp + relative) * _timestampScale / 100;
         long durationTicks = blockDuration is long units
             ? units * _timestampScale / 100
             : track.DefaultDurationNs * frames.Count / 100;
         bool keyFrame = simple ? (flags & 0x80) != 0 : !hasReference;
-        return new MatroskaPacket(trackNumber, timeTicks, durationTicks, keyFrame, data, sizes);
+        return new MediaPacket(trackNumber, timeTicks, durationTicks, keyFrame, data, sizes);
     }
 
     private static List<(int, int)> SplitLaces(byte[] raw, int pos, int lacing)
@@ -856,9 +801,10 @@ internal sealed class MatroskaDemuxer : IDisposable
     }
 
     /// <summary>Joins laced frames into one sample, undoing header stripping (3) or zlib (0) compression.</summary>
-    private static (byte[] Data, int[] FrameSizes) Concatenate(byte[] raw, List<(int Offset, int Length)> frames, MatroskaTrack track)
+    private static (byte[] Data, int[] FrameSizes) Concatenate(byte[] raw, List<(int Offset, int Length)> frames, int track,
+        (int Algorithm, byte[]? Settings)? compression)
     {
-        if (frames.Count == 1 && track.CompressionAlgorithm is null)
+        if (frames.Count == 1 && compression is null)
         {
             return (raw.AsSpan(frames[0].Offset, frames[0].Length).ToArray(), [frames[0].Length]);
         }
@@ -869,13 +815,13 @@ internal sealed class MatroskaDemuxer : IDisposable
         {
             var (offset, length) = frames[i];
             long before = output.Length;
-            switch (track.CompressionAlgorithm)
+            switch (compression?.Algorithm)
             {
                 case null:
                     output.Write(raw, offset, length);
                     break;
                 case 3:
-                    output.Write(track.CompressionSettings ?? []);
+                    output.Write(compression.Value.Settings ?? []);
                     output.Write(raw, offset, length);
                     break;
                 case 0:
@@ -886,7 +832,7 @@ internal sealed class MatroskaDemuxer : IDisposable
 
                     break;
                 default:
-                    throw new NotSupportedException($"Track {track.Number} uses content compression algorithm {track.CompressionAlgorithm}");
+                    throw new NotSupportedException($"Track {track} uses content compression algorithm {compression?.Algorithm}");
             }
 
             sizes[i] = (int)(output.Length - before);

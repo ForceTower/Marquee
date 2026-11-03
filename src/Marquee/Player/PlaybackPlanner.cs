@@ -91,7 +91,7 @@ internal static class PlaybackPlanner
         string container = (r.Version.Container ?? MediaFile.Extension(r.Location).TrimStart('.')).ToLowerInvariant();
         var video = r.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         string? codec = video?.Codec ?? r.Version.VideoCodec;
-        bool mfCanPlay = container is "mkv" or "mk3d" or "mp4" or "m4v" or "mov" && codec is "hevc" or "h264";
+        bool mfCanPlay = MediaFoundationEngine.PlaysContainer(container) && codec is "hevc" or "h264";
         if (!mfCanPlay)
         {
             return (EngineMode.Mpv, null);

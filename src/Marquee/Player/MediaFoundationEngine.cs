@@ -1,8 +1,8 @@
 using Marquee.Data;
 using Marquee.Playback;
+using Marquee.Playback.Demuxing;
 using Marquee.Playback.Interop;
 using Marquee.Playback.IO;
-using Marquee.Playback.Matroska;
 using Marquee.Playback.MediaFoundation;
 using Marquee.Playback.SpatialAudio;
 using Marquee.Playback.Subtitles;
@@ -17,18 +17,19 @@ using Windows.Storage;
 namespace Marquee.Player;
 
 /// <summary>
-/// Windows' own pipeline: real Dolby Vision signalling (through Marquee's MKV reader for
-/// Matroska), DD+ Atmos objects via Windows' Dolby decoder, DTS via DTS Sound Unbound, and TrueHD
-/// either as FFmpeg's 7.1 bed or, with TrueHD Atmos on, as live objects through Spatial Sound.
-/// Subtitles are rendered by Marquee (libass for text, FFmpeg for PGS/VobSub) into frames the
-/// player view draws over the video, timed to the video's <see cref="PresentationClock"/>.
+/// Windows' own pipeline: real Dolby Vision signalling (through Marquee's own demuxing for
+/// Matroska and MPEG-TS, Windows' source for MP4), DD+ Atmos objects via Windows' Dolby decoder,
+/// DTS via DTS Sound Unbound, and TrueHD either as FFmpeg's 7.1 bed or, with TrueHD Atmos on, as
+/// live objects through Spatial Sound. Subtitles are rendered by Marquee (libass for text, FFmpeg
+/// for PGS/VobSub) into frames the player view draws over the video, timed to the video's
+/// <see cref="PresentationClock"/>.
 /// </summary>
 internal sealed class MediaFoundationEngine : IPlayerEngine
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
-    /// <summary>A subtitle the user can pick: a Matroska track, a downloadable sidecar, or a file on disk.</summary>
-    private sealed record SubtitleChoice(TrackOption Option, SubtitleCodec? Codec, MatroskaTrack? Track = null, string? Url = null, string? Path = null);
+    /// <summary>A subtitle the user can pick: an embedded track, a downloadable sidecar, or a file on disk.</summary>
+    private sealed record SubtitleChoice(TrackOption Option, SubtitleCodec? Codec, MediaTrack? Track = null, string? Url = null, string? Path = null);
 
     private readonly MediaPlayer _player = new();
     private readonly AppSettings _settings;
@@ -39,8 +40,8 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     private PlaybackRequest? _request;
     private MediaPlaybackItem? _item;
     private MediaSource? _source;
-    private MatroskaMediaSource? _mkv;
-    private MatroskaTrack? _videoTrack;
+    private DemuxerMediaSource? _demuxed;
+    private MediaTrack? _videoTrack;
     private PresentationClock _clock = new();
     private AtmosPlayback? _atmos;
     private SubtitlePlayback? _subtitles;
@@ -143,17 +144,25 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     public event Action<string>? Failed;
     public event Action? TracksChanged;
 
+    /// <summary>Whether the engine opens files of this container (Plex's name or the file's extension).</summary>
+    public static bool PlaysContainer(string container) => container switch
+    {
+        "mkv" or "mk3d" or "mp4" or "m4v" or "mov" => true,
+        "mpegts" or "ts" or "m2ts" or "mts" => FfmpegLibraries.CanDemux,
+        _ => false,
+    };
+
     /// <summary>
     /// Whether Media Foundation can show subtitle <paramref name="ordinal"/> of a request: embedded
-    /// tracks need Marquee's MKV reader, sidecars a text format.
+    /// tracks need a container Marquee reads (MKV, MPEG-TS, or MP4 through libavformat), sidecars a
+    /// text format.
     /// </summary>
     public static bool CanShow(PlaybackRequest request, int ordinal)
     {
         var embedded = request.Streams.Where(s => s.Kind == StreamKind.Subtitle && s.Ordinal >= 0).ToList();
         if (ordinal < embedded.Count)
         {
-            return MatroskaMediaSource.Handles(request.Location) &&
-                   SubtitleOpener.CanShow(SubtitleCodecs.FromName(embedded.FirstOrDefault(s => s.Ordinal == ordinal)?.Codec));
+            return SubtitleOpener.CanShowEmbedded(request.Location, SubtitleCodecs.FromName(embedded.FirstOrDefault(s => s.Ordinal == ordinal)?.Codec));
         }
 
         var external = request.Streams.Where(s => s.Kind == StreamKind.Subtitle && s.ExternalKey is not null).ElementAtOrDefault(ordinal - embedded.Count);
@@ -172,20 +181,23 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         _clock = new PresentationClock();
         _clock.Trace += message => Log.Info($"MF clock: {message}");
         _opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        string location = request.Location;
+
+        // Windows' MP4 source doesn't hand over subtitle tracks, so list them through libavformat
+        // while Media Foundation opens the file.
+        Task<IReadOnlyList<MediaTrack>>? mp4Tracks = !DemuxerMediaSource.Handles(location) && SubtitleOpener.CanReadEmbedded(location)
+            ? Task.Run(() => ListTracks(location))
+            : null;
+        _subtitleChoices = [];
         await MatchAudioDeviceAsync();
 
-        string location = request.Location;
-        List<MatroskaTrack> subtitleTracks = [];
-        if (MatroskaMediaSource.Handles(location))
+        IReadOnlyList<MediaTrack> subtitleTracks = [];
+        if (DemuxerMediaSource.Handles(location))
         {
             bool windowsDts = StoreCodecRuntime.Loaded && StoreCodecRuntime.HasDtsDecoder;
-            var probed = await Task.Run(() =>
-            {
-                using var probe = MatroskaDemuxer.Open(location, 64 * 1024);
-                return probe.Tracks;
-            });
-            var tracks = probed.Where(t => t.Kind == TrackKind.Audio).ToList();
-            subtitleTracks = probed.Where(t => t.Kind == TrackKind.Subtitle).ToList();
+            var demuxer = await Task.Run(() => Demuxer.Open(location));
+            var tracks = demuxer.Tracks.Where(t => t.Kind == TrackKind.Audio).ToList();
+            subtitleTracks = demuxer.Tracks.Where(t => t.Kind == TrackKind.Subtitle).ToList();
 
             int? atmosTrack = null;
             if (!request.WithoutSound && request.PlayTrueHdAsObjects && request.Audio is int wanted && wanted < tracks.Count && tracks[wanted].CodecId == "A_TRUEHD")
@@ -193,17 +205,18 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
                 atmosTrack = tracks[wanted].Number;
             }
 
-            var mkv = await Task.Run(() => MatroskaMediaSource.Open(location, _settings.DolbyVision, windowsDts, atmosTrack, audio: !request.WithoutSound));
-            mkv.Error += message => Log.Error($"MKV reader: {message}");
-            mkv.Trace += message => Log.Info($"MKV reader: {message}");
-            mkv.Seeked += _clock.OnSeeked;
-            mkv.StartReleased += _clock.OnStartReleased;
-            Log.Info("MKV reader:\n  " + string.Join("\n  ", mkv.Description));
-            _mkv = mkv;
-            _videoTrack = mkv.Demuxer.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video);
+            string reader = $"{demuxer.Container} reader";
+            var demuxed = await Task.Run(() => DemuxerMediaSource.Open(demuxer, _settings.DolbyVision, windowsDts, atmosTrack, audio: !request.WithoutSound));
+            demuxed.Error += message => Log.Error($"{reader}: {message}");
+            demuxed.Trace += message => Log.Info($"{reader}: {message}");
+            demuxed.Seeked += _clock.OnSeeked;
+            demuxed.StartReleased += _clock.OnStartReleased;
+            Log.Info($"{reader}:\n  " + string.Join("\n  ", demuxed.Description));
+            _demuxed = demuxed;
+            _videoTrack = demuxer.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Video);
             if (atmosTrack is int track)
             {
-                StartAtmos(location, mkv, track);
+                StartAtmos(location, demuxed, track);
             }
 
             _audio = tracks.Select((t, i) =>
@@ -220,7 +233,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
                 dv is not null && _settings.DolbyVision ? $"Dolby Vision P{dv.Profile}{(dv.Profile == 7 ? " → 8.1" : "")}" : null,
                 atmosTrack is not null ? "TrueHD Atmos objects" : null,
                 request.WithoutSound ? "no sound" : null);
-            _source = MediaSource.CreateFromMediaStreamSource(mkv.Source);
+            _source = MediaSource.CreateFromMediaStreamSource(demuxed.Source);
         }
         else
         {
@@ -231,8 +244,6 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
             _description = "Media Foundation";
         }
 
-        _subtitleChoices = SubtitleChoices(request, subtitleTracks);
-
         // Not MediaPlaybackItem(source, start): that trims the item. Seek once it has opened.
         _pendingStart = request.Start > TimeSpan.Zero ? request.Start : null;
         _pendingAudioIndex = request.Audio;
@@ -240,14 +251,39 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         _item.AudioTracksChanged += (_, _) => _dispatcher.TryEnqueue(() => Log.Guard("MF audio tracks", MapAudioTracks));
         _player.Source = _item;
         await _opened.Task;
+        if (mp4Tracks is not null)
+        {
+            var tracks = await mp4Tracks;
+            subtitleTracks = tracks.Where(t => t.Kind == TrackKind.Subtitle).ToList();
+            _videoTrack = tracks.FirstOrDefault(t => t.Kind == TrackKind.Video);
+        }
+
+        _subtitleChoices = SubtitleChoices(request, subtitleTracks);
         SelectSubtitle(request.Subtitle);
+    }
+
+    /// <summary>A file's tracks as libavformat lists them, or none if it can't be read (the subtitles are then mpv's to show).</summary>
+    private static IReadOnlyList<MediaTrack> ListTracks(string location)
+    {
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            using var demuxer = Demuxer.Open(location, 16 * 1024);
+            Log.Info($"{demuxer.Container} tracks listed through libavformat in {stopwatch.ElapsedMilliseconds} ms");
+            return demuxer.Tracks;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Couldn't list the subtitle tracks of {location}", ex);
+            return [];
+        }
     }
 
     /// <summary>
     /// Embedded tracks first (labelled from the library's stream info when there is one), then Plex
     /// sidecars, then files loaded in the player: the same order mpv lists them in.
     /// </summary>
-    private List<SubtitleChoice> SubtitleChoices(PlaybackRequest request, List<MatroskaTrack> tracks)
+    private List<SubtitleChoice> SubtitleChoices(PlaybackRequest request, IReadOnlyList<MediaTrack> tracks)
     {
         var choices = new List<SubtitleChoice>();
         var streams = request.Streams.Where(s => s.Kind == StreamKind.Subtitle && s.Ordinal >= 0).ToList();
@@ -411,9 +447,9 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     }
 
     public bool CanShowSubtitle(int ordinal) =>
-        _subtitleChoices.ElementAtOrDefault(ordinal) is { } choice && (choice.Track is not null && _mkv is not null
+        _subtitleChoices.ElementAtOrDefault(ordinal) is { } choice && (choice.Track is not null
             ? SubtitleOpener.CanShow(choice.Codec)
-            : choice.Track is null && (choice.Url ?? choice.Path) is not null && SubtitleOpener.CanShowFile(choice.Codec));
+            : (choice.Url ?? choice.Path) is not null && SubtitleOpener.CanShowFile(choice.Codec));
 
     public bool CanShowSubtitleFile(string path) => SubtitleOpener.CanShowFile(SubtitleCodecs.FromName(System.IO.Path.GetExtension(path).TrimStart('.')));
 
@@ -498,7 +534,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     {
         int generation = ++_subtitleGeneration;
         string location = _request?.Location ?? "";
-        var mkv = _mkv;
+        var demuxer = _demuxed?.Demuxer;
         var clock = _clock;
         var video = _videoTrack;
         var (width, height) = VideoSize;
@@ -511,9 +547,9 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         {
             playback = await Task.Run(async () =>
             {
-                if (choice.Track is { } track && mkv is not null)
+                if (choice.Track is { } track)
                 {
-                    return SubtitleOpener.OpenEmbedded(location, track, mkv.Demuxer, video, clock.Now, Report, style);
+                    return SubtitleOpener.OpenEmbedded(location, track, demuxer, video, clock.Now, Report, style);
                 }
 
                 byte[] content = choice.Url is { } url ? await Http.GetByteArrayAsync(url) : await File.ReadAllBytesAsync(choice.Path!);
@@ -605,14 +641,14 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
     public void Tick() =>
         _clock.Update(_player.PlaybackSession.Position, _player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing);
 
-    private void StartAtmos(string location, MatroskaMediaSource mkv, int track)
+    private void StartAtmos(string location, DemuxerMediaSource demuxed, int track)
     {
         _atmos = new AtmosPlayback(location, track, new TrueHdAtmosDecoder(), _clock);
         _atmos.Output.OffsetMs = _audioDelay;
         _atmos.Output.Muted = _player.IsMuted;
         _atmos.Failed += message => Log.Error($"Atmos: {message}");
-        mkv.Seeked += _atmos.OnSeeked;
-        mkv.StartGate = _atmos.WaitUntilReadyAsync;
+        demuxed.Seeked += _atmos.OnSeeked;
+        demuxed.StartGate = _atmos.WaitUntilReadyAsync;
     }
 
     /// <summary>Follows the audio device chosen in Settings (by name), else Windows' default.</summary>
@@ -640,7 +676,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         _player.Source = null;
         _source?.Dispose();
         _source = null;
-        _mkv = null;
+        _demuxed = null;
         _videoTrack = null;
         _item = null;
     }

@@ -19,9 +19,6 @@ internal sealed unsafe class FfmpegAudioDecoder : IDisposable
         ["A_DTS/LOSSLESS"] = AVCodecID.AV_CODEC_ID_DTS,
     };
 
-    private static readonly object LoadLock = new();
-    private static bool? s_loaded;
-
     private readonly AVCodecContext* _context;
     private readonly AVPacket* _packet;
     private readonly AVFrame* _frame;
@@ -34,31 +31,6 @@ internal sealed unsafe class FfmpegAudioDecoder : IDisposable
     public int Errors { get; private set; }
 
     public static bool CanDecode(string matroskaCodecId) => CodecsByMatroskaId.ContainsKey(matroskaCodecId);
-
-    /// <summary>Points FFmpeg.AutoGen at the bundled libraries; false if they're missing or unloadable.</summary>
-    public static bool TryLoad(out string? error)
-    {
-        lock (LoadLock)
-        {
-            error = null;
-            if (s_loaded is null)
-            {
-                try
-                {
-                    ffmpeg.RootPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg");
-                    _ = ffmpeg.avcodec_version();
-                    s_loaded = true;
-                }
-                catch (Exception ex)
-                {
-                    s_loaded = false;
-                    error = ex.Message;
-                }
-            }
-
-            return s_loaded.Value;
-        }
-    }
 
     public FfmpegAudioDecoder(string matroskaCodecId, byte[]? codecPrivate, int sampleRate, int channels)
     {

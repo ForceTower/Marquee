@@ -2,8 +2,9 @@ param(
     [string]$Branch = '9.0'
 )
 
-# Shared LGPL FFmpeg libraries for in-process audio decoding (TrueHD, DTS) in the Media Foundation
-# engine. The branch must match the FFmpeg.AutoGen package version in EngineSpike.csproj.
+# Shared LGPL FFmpeg libraries for the Media Foundation engine: audio and bitmap subtitle decoding
+# (TrueHD, DTS, PGS), MPEG-TS demuxing and MP4 subtitle reading. The branch must match the
+# FFmpeg.AutoGen package version in Marquee.Playback.csproj.
 $ErrorActionPreference = 'Stop'
 $lib = Join-Path (Split-Path $PSScriptRoot -Parent) 'lib\ffmpeg'
 $asset = "ffmpeg-n$Branch-latest-win64-lgpl-shared-$Branch.zip"
@@ -21,7 +22,7 @@ try {
     if (Test-Path $lib) { Remove-Item $lib -Recurse -Force }
     New-Item -ItemType Directory -Force $lib | Out-Null
     Get-ChildItem $bin.FullName -Filter *.dll |
-        Where-Object { $_.Name -match '^(avcodec|avutil|swresample)-\d+\.dll$' } |
+        Where-Object { $_.Name -match '^(avcodec|avformat|avutil|swresample)-\d+\.dll$' } |
         Copy-Item -Destination $lib
     Set-Content (Join-Path $lib 'ffmpeg.version') $asset
     Get-ChildItem $lib | ForEach-Object { Write-Host "  $($_.Name)" }

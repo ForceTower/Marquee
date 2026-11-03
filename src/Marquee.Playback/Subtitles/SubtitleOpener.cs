@@ -1,40 +1,56 @@
+using Marquee.Playback.Demuxing;
 using Marquee.Playback.Matroska;
 using Marquee.Playback.MediaFoundation;
 
 namespace Marquee.Playback.Subtitles;
 
-/// <summary>Builds a <see cref="SubtitlePlayback"/> for an embedded Matroska track or a subtitle file.</summary>
+/// <summary>Builds a <see cref="SubtitlePlayback"/> for an embedded track or a subtitle file.</summary>
 internal static class SubtitleOpener
 {
     /// <summary>Whether this build can show subtitles of <paramref name="codec"/> (its native libraries are present).</summary>
     public static bool CanShow(SubtitleCodec? codec) => codec switch
     {
         null => false,
-        { } c when c.IsBitmap() => FfmpegAudioDecoder.TryLoad(out _),
+        { } c when c.IsBitmap() => FfmpegLibraries.TryLoad(out _),
         _ => AssRenderer.Available,
     };
 
     /// <summary>Text formats that can be loaded from a file.</summary>
     public static bool CanShowFile(SubtitleCodec? codec) => codec is SubtitleCodec.Ass or SubtitleCodec.SubRip or SubtitleCodec.WebVtt && CanShow(codec);
 
-    /// <param name="playbackDemuxer">The demuxer feeding the video, for files whose index doesn't cover the track.</param>
+    /// <summary>
+    /// Whether embedded subtitles of this file can be read: from the demuxer that feeds Media
+    /// Foundation, or for MP4 (played by Windows' own source) through libavformat.
+    /// </summary>
+    public static bool CanReadEmbedded(string location) =>
+        DemuxerMediaSource.Handles(location) || Demuxer.IsMp4(location) && FfmpegLibraries.CanDemux;
+
+    /// <summary>Whether an embedded track of this codec in this file can be shown. From MP4 that's only timed text (tx3g).</summary>
+    public static bool CanShowEmbedded(string location, SubtitleCodec? codec) =>
+        CanReadEmbedded(location) && (!Demuxer.IsMp4(location) || codec == SubtitleCodec.SubRip) && CanShow(codec);
+
+    /// <param name="playbackDemuxer">
+    /// The demuxer feeding the video, or null for a file Windows' own source plays (MP4), whose
+    /// track is then read through a demuxer of the subtitles' own.
+    /// </param>
     /// <param name="video">The video track, for its size and frame rate.</param>
     /// <param name="style">Colours for plain-text subtitles.</param>
-    public static SubtitlePlayback OpenEmbedded(string location, MatroskaTrack track, MatroskaDemuxer playbackDemuxer, MatroskaTrack? video,
+    public static SubtitlePlayback OpenEmbedded(string location, MediaTrack track, IDemuxer? playbackDemuxer, MediaTrack? video,
         Func<VideoClock> clock, Action<string>? log = null, TextStyle? style = null)
     {
         var codec = SubtitleCodecs.FromMatroska(track.CodecId) ?? throw new NotSupportedException($"Subtitle codec {track.CodecId} isn't supported");
         int width = video?.Width ?? 0, height = video?.Height ?? 0;
         double frameRate = video is { DefaultDurationNs: > 0 } ? 1e9 / video.DefaultDurationNs : 24;
-        List<MatroskaAttachment> fonts = codec == SubtitleCodec.Ass ? Fonts(location) : [];
+        List<MatroskaAttachment> fonts = codec == SubtitleCodec.Ass && Demuxer.IsMatroska(location) ? Fonts(location) : [];
         ISubtitleRenderer renderer = codec.IsBitmap()
             ? new BitmapSubtitleRenderer(codec, track.CodecPrivate, width, height)
             : new AssRenderer(codec, track.CodecPrivate, fonts, width, height, log, style);
 
-        MatroskaSubtitleSource source;
+        ISubtitleSource source;
+        string reading;
         try
         {
-            source = new MatroskaSubtitleSource(location, track.Number, playbackDemuxer);
+            (source, reading) = OpenSource(location, track.Number, playbackDemuxer, log);
         }
         catch
         {
@@ -42,14 +58,8 @@ internal static class SubtitleOpener
             throw;
         }
 
-        if (log is not null)
-        {
-            source.Failed += log;
-        }
-
         string description = $"subtitle #{track.Number} [{track.DisplayLanguage}] {track.CodecId}" +
-                             $"{(track.Name is { Length: > 0 } name ? $" '{name}'" : "")}" +
-                             $"{(source.Indexed ? ", read through the index" : ", following playback (no per-block index)")}" +
+                             $"{(track.Name is { Length: > 0 } name ? $" '{name}'" : "")}, {reading}" +
                              $"{(fonts.Count > 0 ? $", {fonts.Count} attached fonts" : "")}";
         var playback = new SubtitlePlayback(source, renderer, clock, frameRate, description);
         if (log is not null)
@@ -58,6 +68,32 @@ internal static class SubtitleOpener
         }
 
         return playback;
+    }
+
+    /// <summary>Where an embedded track's packets come from, and how that reads, for the log.</summary>
+    internal static (ISubtitleSource Source, string Reading) OpenSource(string location, int track, IDemuxer? playbackDemuxer, Action<string>? log)
+    {
+        switch (playbackDemuxer)
+        {
+            case MatroskaDemuxer mkv when MatroskaSubtitleSource.CanRead(mkv, track):
+                var indexed = new MatroskaSubtitleSource(location, track, mkv);
+                if (log is not null)
+                {
+                    indexed.Failed += log;
+                }
+
+                return (indexed, "read through the index");
+            case null:
+                var seeking = new SeekingSubtitleSource(Demuxer.Open(location, 16 * 1024), track);
+                if (log is not null)
+                {
+                    seeking.Failed += log;
+                }
+
+                return (seeking, "read through its own demuxer");
+            default:
+                return (new TappedSubtitleSource(playbackDemuxer, track), "following playback (no per-block index)");
+        }
     }
 
     /// <summary>A whole subtitle file: ASS/SSA, SubRip or WebVTT, in any common encoding.</summary>

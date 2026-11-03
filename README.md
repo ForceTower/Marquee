@@ -26,9 +26,8 @@ Segoe Fluent icons) with a dark graphite and amber look.
 - **Screens:** Home (continue watching, recently added, up next), Movies and TV grids, movie and
   series detail pages, Sources, Settings.
 - **Player:** picks the engine per file. Media Foundation when it adds something mpv can't (real
-  Dolby Vision, Atmos objects, DTS:X), mpv otherwise or for subtitles it can't show (tracks inside
-  MP4 files). Plex items play the
-  original file directly over HTTP. Progress and watched state sync back to Plex. It also does
+  Dolby Vision, Atmos objects, DTS:X) in MKV, MP4 or MPEG-TS/M2TS, mpv otherwise or for subtitles
+  it can't show. Plex items play the original file directly over HTTP. Progress and watched state sync back to Plex. It also does
   resume, skip intro/credits, next-episode countdown, chapters, audio and subtitle choice, picture
   in picture, frame stepping and lip-sync.
 
@@ -134,6 +133,29 @@ Windows itself has no TrueHD or DTS decoder:
 | DV P8 (WEB-DL) | plain HEVC, no HDR metadata | **real Dolby Vision**, seeks |
 | DV P8 + TrueHD + DTS-HD MA (UHD remux) | — | `dvhe.08` requested; TrueHD 7.1 and DTS-HD MA 7.1 decoded, real time, 0 errors |
 | DV P7 MEL and FEL (UHD remuxes) | — | **real Dolby Vision** via per-frame 7 → 8.1 RPU conversion |
+
+### MPEG-TS and MP4 subtitles
+
+The same `MediaStreamSource` also takes MPEG-TS and Blu-ray M2TS, demuxed by FFmpeg's libavformat
+instead of Marquee's MKV reader. Tracks come out described as Matroska would store them, so
+everything above applies:
+
+- Dolby Vision from the stream's DOVI descriptor, including the 7 → 8.1 conversion.
+- HDR10 metadata from the bitstream.
+- TrueHD Atmos objects.
+- PGS subtitles, collected from one PES per segment into display sets.
+
+Blu-ray discs that carry the Dolby Vision enhancement layer on a PID of its own play as HDR10.
+
+MP4 stays with Windows' own source, which keeps Dolby Vision but doesn't hand over subtitle tracks.
+Marquee reads the chosen tx3g track through libavformat on its own, around the playing time. The
+text and its italics go through the same libass path as SRT.
+
+| Through Media Foundation | Result |
+|---|---|
+| UHD M2TS, HDR10 + TrueHD Atmos + PGS | HDR10 metadata, objects about 1 ms in sync, PGS shown |
+| DV P8 MP4 WEB-DL with tx3g subtitles | real Dolby Vision path with subtitles on |
+| DV P8 and P7 clips remuxed to MPEG-TS | Dolby Vision plugin loads; P7 RPUs convert to 8.1 |
 
 ### Dolby Vision profile 7
 

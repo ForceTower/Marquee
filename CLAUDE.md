@@ -80,6 +80,24 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
   - Tested in the app: 23.976 fps went to 119.88 Hz and back; with HDR off, Dolby Vision video
     turned it on and closing turned it off.
   - Also tested killing the app mid-playback.
+- **MP4 subtitles and MPEG-TS in the Media Foundation engine** (2026-11-03), so neither forces
+  mpv any more:
+  - MP4's embedded text tracks (tx3g) are read through libavformat while Windows' MP4 source plays
+    the rest, so a DV MP4 WEB-DL keeps real Dolby Vision with subtitles on.
+  - MPEG-TS and Blu-ray M2TS are demuxed by libavformat into Marquee's `MediaStreamSource`:
+    - HDR10 metadata.
+    - Dolby Vision from the DOVI descriptor, P7 → 8.1 included.
+    - TrueHD Atmos objects.
+    - PGS subtitles.
+  - Checked in the app:
+    - tx3g subtitles (italics included) over a DV P8 MP4 WEB-DL.
+    - A UHD M2TS with TrueHD Atmos objects (about 1 ms sync) and PGS.
+  - DV in MPEG-TS was checked with clips remuxed from DV P8 and P7 MKVs: the Dolby Vision plugin
+    loads and RPUs convert.
+  - The user saw the monitor's Dolby Vision logo during the test runs, which included the DV MP4
+    with subtitles and those MPEG-TS clips.
+  - Not handled: Blu-ray M2TS with the Dolby Vision enhancement layer on its own PID (dual-layer
+    discs). Those play as HDR10, as in mpv.
 
 Next:
 
@@ -105,7 +123,7 @@ Next:
   probing local → remote → relay), `PlexServerApi` (paged listings, metadata, timeline, scrobble),
   `PlexMapper` (JSON → rows). Image references are stored as `plex:{server}:{path}` and resolved
   to the server's photo transcoder at display time, so a server changing address breaks nothing.
-  Direct play is the part URL plus the token; the MKV reader reads it through `HttpRangeStream`.
+  Direct play is the part URL plus the token; Marquee's readers read it through `HttpRangeStream`.
 - **Sync:** `Library/LibrarySync` runs a full Plex pass (types 1–4) and On Deck at startup and
   every 30 min, rescans watched folders on change (debounced), then `TmdbMatcher` matches local
   items. A rescan re-applies stored matches without calling TMDB; manual matches are locked.
@@ -113,8 +131,8 @@ Next:
 - **Player:** `Player/PlaybackPlanner` picks the version, audio (preferred language → Atmos →
   lossless → channels), subtitles (off / forced-only / always), resume point and engine.
   Automatic routing uses Media Foundation only when it adds something (real DV, Atmos objects,
-  DTS:X) and can show the chosen subtitles (embedded ones need Marquee's MKV reader, so MP4 tracks
-  still go to mpv). `MpvEngine` and `MediaFoundationEngine` implement
+  DTS:X), plays the container (MKV, MP4, MPEG-TS) and can show the chosen subtitles.
+  `MpvEngine` and `MediaFoundationEngine` implement
   `IPlayerEngine`; `PlayerView` runs a 50 ms tick, reports Plex timeline/progress every 10 s,
   scrobbles at 90 % or the final credits, shows skip-intro/credits from markers and counts down
   to the next episode. The user's star rating (`RatingControl`, Plex's 0–10 `userRating`) syncs
@@ -152,7 +170,7 @@ Next:
   - The controls (`MiniChrome`) show only while the pointer is over it. A double-click returns to
     the full player.
   - `CompactOverlayPresenter` isn't used: it always keeps a title bar.
-- **Logs:** `%LOCALAPPDATA%\Marquee\marquee.log` (startup, playback decisions, MKV reader,
+- **Logs:** `%LOCALAPPDATA%\Marquee\marquee.log` (startup, playback decisions, Marquee's readers,
   errors) and `mpv.log` next to it.
 
 ## Tech stack
@@ -196,13 +214,18 @@ Next:
       restarts at the last epoch start or acquisition point.
     - A canvas the shape of the video maps onto it. A 1080p canvas over a cropped encode is scaled
       to the video's width and centred, as if the bars were still there.
-  - **Packets come through the MKV's index.** mkvmerge writes a cue entry for every subtitle block,
-    with `CueRelativePosition` (the block's offset in its cluster) and `CueDuration`.
-    - `MatroskaSubtitleSource` reads exactly the blocks from 10 s before to 60 s after the playing
-      time, through its own 16 KB-buffered demuxer.
-    - So seeks and track switches show lines that are already on screen.
-    - Without those entries it taps the playback demuxer (`MatroskaDemuxer.Tap`) and misses lines
-      that began before a seek's keyframe.
+  - **Packets come through the container's index where it has one** (`Subtitles/SubtitleSources`):
+    - MKV: mkvmerge writes a cue entry for every subtitle block, with `CueRelativePosition` (the
+      block's offset in its cluster) and `CueDuration`. `MatroskaSubtitleSource` reads exactly the
+      blocks from 10 s before to 60 s after the playing time, through its own 16 KB-buffered
+      demuxer. So seeks and track switches show lines that are already on screen.
+    - MP4: Windows' MP4 source doesn't hand subtitle tracks over, so `SeekingSubtitleSource` reads
+      the track through a libavformat demuxer of its own (MP4's sample tables index every
+      sample), over the same window. tx3g samples become SubRip-style text with their style runs
+      as i/b/u tags (`Demuxing/MovText`), and go through the text path above. Plex calls them
+      `mov_text`.
+    - Otherwise (MPEG-TS, an MKV without those entries) `TappedSubtitleSource` taps the playback
+      demuxer (`IDemuxer.Tap`) and misses lines that began before a seek's keyframe.
   - **Fonts and encodings:** fonts attached to the MKV go to libass. File encodings are detected
     (BOM, strict UTF-8, else Windows-1252), because libass only takes UTF-8.
   - **Timing:** `SubtitlePlayback` renders on its own thread, once per video frame, against the
@@ -220,21 +243,37 @@ Next:
   - **Colours:** Settings → Subtitles sets text and outline colours for plain text (SRT, WebVTT) in
     both engines: the converted style's colours here, `sub-color`/`sub-outline-color` in mpv.
     Styled ASS keeps its own colours; PGS and VobSub are pictures.
-  - Embedded MP4 subtitle tracks still go to mpv.
-  - `EngineSpike --sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <mkv>` lists a
-    file's subtitle tracks and their index coverage, then renders each around `--start` to PNGs
-    plus a report. Given a .srt/.vtt/.ass/.ssa file instead, it renders that file's first cues from
-    `--start`. `--sub-reserve` renders as if the controls took that many pixels at the bottom.
-- **Marquee's MKV reader** (`Matroska/`). Windows' own MKV source drops Dolby Vision and HDR
-  attributes, and fails outright on DV profile 5. So Marquee demuxes Matroska itself and feeds
-  Media Foundation through a `MediaStreamSource`:
+  - `EngineSpike --sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <video>` lists
+    an MKV, MP4 or MPEG-TS file's subtitle tracks (and an MKV's index coverage), then renders each
+    around `--start` to PNGs plus a report, reading them as playback would. Given a
+    .srt/.vtt/.ass/.ssa file instead, it renders that file's first cues from `--start`.
+    `--sub-reserve` renders as if the controls took that many pixels at the bottom.
+- **Marquee's own demuxing** (`Demuxing/`, `Matroska/`, `MediaFoundation/DemuxerMediaSource`).
+  Windows' own MKV source drops Dolby Vision and HDR attributes, and fails outright on DV profile
+  5; its MPEG-TS source knows neither Dolby Vision nor TrueHD. So Marquee demuxes those itself and
+  feeds Media Foundation through a `MediaStreamSource` (`DemuxerMediaSource`). MP4 stays with
+  Windows' source, which keeps Dolby Vision.
+  - **Readers** implement `IDemuxer`, and describe tracks and packets as Matroska would store them
+    (`MediaTrack`: Matroska codec IDs and CodecPrivate), so everything downstream is shared.
+    `Demuxer.Open` picks one by extension:
+    - Matroska: `MatroskaDemuxer`, Marquee's own.
+    - Anything else: `FfmpegDemuxer`, libavformat through a custom AVIO over `MediaFile.OpenRead`.
+  - **`FfmpegDemuxer` specifics:**
+    - Tracks are numbered from 1 in FFmpeg's stream order, which is Plex's.
+    - MPEG-TS times count from the file's start time, as Plex and FFmpeg players count them.
+    - MPEG-TS video stays Annex B, with Annex B parameter sets as its CodecPrivate.
+    - Dolby Vision comes from the DOVI descriptor, through `AV_PKT_DATA_DOVI_CONF`.
+    - HDR10's static metadata is only in the stream's SEI, so one keyframe is decoded for it.
+    - A PGS display set, one PES per segment in MPEG-TS, is collected into one packet.
+    - Seeking searches timestamps, then reads forward to the last keyframe at or before the
+      target, widening the window from 1 s to 60 s until one turns up.
   - The Dolby Vision trigger is two attributes:
     - `MF_MT_VIDEO_RENDERER_EXTENSION_PROFILE` = `"dvhe.05"` or `"dvhe.08"` loads the Dolby Vision
       Extensions' video renderer effect. Its manifest registers only `dvhe.05`, `dvhe.08` and
       `dvav.09`.
     - `MF_MT_FORWARD_CUSTOM_NALU = 62` forwards the RPU.
   - Video: length-prefixed NAL units become Annex B, with parameter sets before keyframes. HDR
-    metadata comes from the Matroska `Colour` element.
+    metadata comes from the Matroska `Colour` element, or the bitstream in MPEG-TS.
   - **Profile 7 → 8.1:** `NalConverter` rewrites every RPU NAL unit (type 62) through
     `native/dovi-ffi` and drops enhancement-layer NAL units (type 63). The stream is then requested
     as `dvhe.08`.
@@ -257,15 +296,16 @@ Next:
     - `Interop/StoreCodecRuntime.cs` preloads the four runtime DLLs by full path at startup,
       after which the playback pipeline picks `DTSXDecoder` by itself (confirmed by
       `DTSXDecoder.dll` loading mid-playback).
-    - The MKV reader passes DTS through as `MFAudioFormat_DTS_HD`, splitting laced frames into
-      one sample each.
+    - `DemuxerMediaSource` passes DTS through as `MFAudioFormat_DTS_HD`, splitting laced frames
+      into one sample each.
     - Without Sound Unbound, or with `--ffmpeg-dts`, DTS falls back to FFmpeg.
   - **TrueHD** has no Windows decoder at all. It's decoded in-process by FFmpeg's libavcodec
     (`Matroska/FfmpegAudioDecoder.cs`) and handed to Media Foundation as float PCM in the real
     channel layout. That gives the lossless 7.1 bed, but no Atmos objects (the same as mpv).
     - Bindings: FFmpeg.AutoGen 9.0.1.1.
-    - Libraries: BtbN's LGPL shared 9.0 build (`avcodec-63`, `avutil-61`, `swresample-7`),
-      fetched by `tools/fetch-ffmpeg.ps1` into `lib/ffmpeg/`.
+    - Libraries: BtbN's LGPL shared 9.0 build (`avcodec-63`, `avformat-63`, `avutil-61`,
+      `swresample-7`), fetched by `tools/fetch-ffmpeg.ps1` into `lib/ffmpeg/`. libavformat is for
+      MPEG-TS and MP4 subtitles; `FfmpegLibraries` loads them.
     - The package version must match the FFmpeg branch; check `ffmpeg.LibraryVersionMap`.
     - These libraries are separate from the FFmpeg statically linked inside libmpv.
 - **TrueHD Atmos objects** (`SpatialAudio/`, `native/truehd-ffi/`):
@@ -282,9 +322,9 @@ Next:
     - Every export is wrapped in `catch_unwind`, because corrupt input can panic the crate; a panic
       resets the decoder.
   - **Pipeline:**
-    - `AtmosPlayback` reads the TrueHD track through its own `MatroskaDemuxer` on a decode thread.
+    - `AtmosPlayback` reads the TrueHD track through its own demuxer on a decode thread.
     - Media Foundation gets a video-only `MediaStreamSource`, opened with
-      `MatroskaMediaSource.Open(…, externalAudioTrack)`.
+      `DemuxerMediaSource.Open(…, externalAudioTrack)`.
     - Decoded audio goes into `AtmosStream`, a 4 s ring buffer anchored to the first packet's media
       time.
     - `SpatialAtmosOutput` sends static bed channels to static objects and everything else to
@@ -295,10 +335,11 @@ Next:
     lip-sync by 10 ms.
   - **Starts and seeks:** audio is audible within about 1 ms of the first video frame. TrueHD can
     only start decoding at a major sync (≤ about 107 ms apart), and positions arrive every 32 ms.
-    - `AtmosPlayback` has its own `MatroskaDemuxer` with a 64 KB buffer, so skipped video blocks
-      don't refill a large buffer.
-    - On `Seeked(actualStart)` it decodes from the cue at least 250 ms earlier (pre-roll).
-    - `MatroskaMediaSource.StartGate` defers Media Foundation's `Starting` request until audio has
+    - `AtmosPlayback` has its own demuxer with a 64 KB buffer, so skipped video blocks don't
+      refill a large buffer (MPEG-TS, which can't skip, gets 1 MB).
+    - On `Seeked(actualStart)` it decodes from the cue (in MPEG-TS, the major sync) at least
+      250 ms earlier (pre-roll).
+    - `DemuxerMediaSource.StartGate` defers Media Foundation's `Starting` request until audio has
       been decoded 200 ms past the start point (timeout 1.5 s).
     - The video clock (`MediaFoundation/PresentationClock`, shared with subtitles) runs Held →
       Armed (on `StartReleased`) → Free. In Armed, the next "Playing" anchors it at the actual
@@ -336,8 +377,11 @@ src/Marquee/              The app (WinUI 3)
   Assets/                 App icon (generated by tools/make-icon.ps1)
 src/Marquee.Playback/     Engine library shared by the app and the spike
   Mpv/                    libmpv P/Invoke and player wrapper
-  MediaFoundation/        MF diagnostics, the Atmos probe, the presentation clock
-  Matroska/               Marquee's MKV demuxer and MediaStreamSource
+  MediaFoundation/        The MediaStreamSource over Marquee's demuxers, MF diagnostics, the Atmos
+                          probe, the presentation clock
+  Demuxing/               IDemuxer and its track model, the reader factory, libavformat's demuxer
+                          (MPEG-TS, MP4 subtitles), tx3g text
+  Matroska/               Marquee's MKV demuxer, FFmpeg audio decoding, DV RPU conversion
   IO/                     File/URL opening, HttpRangeStream for Plex direct play
   Interop/                Win32 child window that hosts mpv; Store codec runtime preload; display
                           HDR state and refresh rate
@@ -382,13 +426,14 @@ spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.
   display language, so grep build logs for ` error ` rather than English text.
 
 - CLI: `--engine mpv|mf`, `--start SECONDS`, `--mute`, `--fullscreen`, `--exit-after N` (also adds
-  a 3-second position heartbeat), `--probe`, `--native-mkv`, `--no-dv`, `--audio-track N`
+  a 3-second position heartbeat), `--probe`, `--native-mkv` (Windows' own MKV and MPEG-TS sources
+  instead of Marquee's), `--no-dv`, `--audio-track N`
   (0-based index in Media Foundation's track list), `--ffmpeg-dts`, `--truehd-atmos`, then the
   path. Other modes:
   - `--extract-track N --start S --seconds D --out f.thd <mkv>` writes raw packets, for example a
     TrueHD clip for truehdd.
-  - `--sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <mkv or subtitle file>`
-    renders subtitles to PNGs.
+  - `--sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <video or subtitle file>`
+    renders subtitles to PNGs (MKV, MP4 or MPEG-TS).
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
   - `--dv-info out.txt <mkv>` writes the Dolby Vision configuration and first RPU (e.g. P7 FEL vs
     MEL) and exits.
@@ -401,7 +446,7 @@ spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.
   sync error, rate, resyncs and underruns.
 - To see which codecs are really in use, list the running process's loaded modules
   (`(Get-Process -Id <pid>).Modules`): `DTSXDecoder.dll`, `DolbyVisionPlugin.dll`,
-  `avcodec-63.dll`.
+  `avcodec-63.dll`, `avformat-63.dll`.
 - Keys: F2 swaps engine at the same position and audio language, F3 picks the next audio track,
   F11/Esc toggle full screen.
 - Logs: `%LOCALAPPDATA%\Marquee\EngineSpike\spike.log` (everything shown in the status pane) and
@@ -438,7 +483,7 @@ the media server's address, audio endpoint names. What the code assumes about an
 - `AudioEncodingProperties.IsSpatial` is false even for Atmos tracks, so it's useless as a check.
 - Matroska blocks can lace several audio frames; some DTS-HD MA tracks have 8 per block. Windows' decoders
   accept the frames concatenated, but FFmpeg's DTS decoder decodes only the first frame of a
-  buffer. Feed laced frames one at a time (`MatroskaPacket.Frames()`), or playback races ahead.
+  buffer. Feed laced frames one at a time (`MediaPacket.Frames()`), or playback races ahead.
 - A TrueHD block is a single 40-sample access unit. Batch the decoded PCM into ~40 ms samples
   instead of handing Media Foundation over a thousand samples a second.
 - After a seek, `MediaPlaybackSession` misleads an external audio clock in two ways:
@@ -449,7 +494,19 @@ the media server's address, audio endpoint names. What the code assumes about an
   
   Anchor to the actual start after the start is released, and ignore polled positions for about a
   second. `PresentationClock` does this for anything timed to Media Foundation's video (TrueHD
-  Atmos, subtitles); `MatroskaMediaSource` raises `StartReleased` even when no start gate holds it.
+  Atmos, subtitles); `DemuxerMediaSource` raises `StartReleased` even when no start gate holds it.
+- libavformat's MPEG-TS seek (`avformat_seek_file`) is a binary search that reads packets of the
+  given stream for their decode timestamps:
+  - On a stream set to `AVDISCARD_ALL` it never finds one and reads to the end of the file (minutes
+    on a 57 GB M2TS over SMB). `FfmpegDemuxer.SeekTo` enables the stream while it searches.
+  - Searching for the first timestamp lands *after* the first keyframe, whose decode time is
+    earlier than its presentation time, so the start of the file is a byte seek to 0.
+- Blu-ray M2TS quirks:
+  - Each PGS segment comes in its own PES packet, and libavformat hands them out one by one;
+    collect them into display sets.
+  - The TrueHD PID also carries an AC-3 core, which libavformat exposes as a second audio stream
+    right after it. Plex lists it too, so ordinals still match.
+  - Languages live in the disc's playlists, not the M2TS, so every track is "und".
 - Many UHD Blu-ray PGS tracks are authored grey, not white, so they aren't glaring over HDR. mpv
   shows them grey too; that isn't a palette bug.
 - A WEB-DL MKV usually carries a "Forced" text track with only a handful of events (signs, foreign

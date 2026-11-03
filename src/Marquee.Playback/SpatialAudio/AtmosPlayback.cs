@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Marquee.Playback.Matroska;
+using Marquee.Playback.Demuxing;
 using Marquee.Playback.MediaFoundation;
 
 namespace Marquee.Playback.SpatialAudio;
@@ -30,9 +30,8 @@ internal sealed class AtmosPlayback : IDisposable
     private static readonly TimeSpan PreRoll = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan ReadyMargin = TimeSpan.FromMilliseconds(200);
 
-    private readonly MatroskaDemuxer _demuxer;
+    private readonly IDemuxer _demuxer;
     private readonly int _track;
-    private readonly int _seekTrack;
     private readonly IAtmosDecoder _decoder;
     private readonly AtmosStream _stream = new();
     private readonly SpatialAtmosOutput _output;
@@ -57,10 +56,9 @@ internal sealed class AtmosPlayback : IDisposable
     /// </param>
     public AtmosPlayback(string path, int track, IAtmosDecoder decoder, PresentationClock clock)
     {
-        _demuxer = MatroskaDemuxer.Open(path, 64 * 1024);
+        _demuxer = Demuxer.Open(path, 64 * 1024);
         _demuxer.Expose(track, active: true);
         _track = track;
-        _seekTrack = _demuxer.FirstVideoTrack ?? track;
         _decoder = decoder;
         _output = new SpatialAtmosOutput(_stream, clock.Now);
         _output.Failed += message => Failed?.Invoke(message);
@@ -116,7 +114,7 @@ internal sealed class AtmosPlayback : IDisposable
 
                 if (seek is { } start)
                 {
-                    TimeSpan from = _demuxer.Seek(start - PreRoll, _seekTrack);
+                    TimeSpan from = _demuxer.Seek(start - PreRoll, _track);
                     _decoder.Reset();
                     _firstChunkTicks = -1;
                     Trace?.Invoke($"seek to {start:hh\\:mm\\:ss\\.fff}: decoding from {from:hh\\:mm\\:ss\\.fff} ({(start - from).TotalMilliseconds:0} ms pre-roll)");

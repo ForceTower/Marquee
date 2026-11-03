@@ -29,7 +29,7 @@ internal static class SubtitleCodecs
     public static SubtitleCodec? FromName(string? name) => name?.ToLowerInvariant() switch
     {
         "ass" or "ssa" => SubtitleCodec.Ass,
-        "srt" or "subrip" => SubtitleCodec.SubRip,
+        "srt" or "subrip" or "mov_text" or "tx3g" => SubtitleCodec.SubRip,
         "vtt" or "webvtt" => SubtitleCodec.WebVtt,
         "pgs" or "hdmv_pgs_subtitle" => SubtitleCodec.Pgs,
         "vobsub" or "dvd_subtitle" => SubtitleCodec.VobSub,
