@@ -139,6 +139,11 @@
         <Setter Property="OffContent" Value="Off" />
     </Style>
 
+    <!-- The title bar search: room on the left for the magnifier laid over it, as in Windows Settings. -->
+    <Style x:Key="TitleSearchTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+        <Setter Property="Padding" Value="40,6,12,6" />
+    </Style>
+
     <Style x:Key="SettingsComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
         <Setter Property="MinWidth" Value="200" />
         <Setter Property="CornerRadius" Value="4" />

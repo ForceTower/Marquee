@@ -6,6 +6,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Graphics;
@@ -74,6 +75,21 @@ public sealed partial class MainWindow : Window
             if (e.GetCurrentPoint(RootGrid).Properties.IsXButton1Pressed && GoBack())
             {
                 e.Handled = true;
+            }
+        };
+
+        // Like Windows Settings' search: 500 wide when there's room, narrowing with the window, and
+        // centered on the window.
+        RootGrid.SizeChanged += (_, e) =>
+        {
+            SearchHost.Width = Math.Clamp(e.NewSize.Width - 720, 240, 500);
+            CenterSearch();
+        };
+        SearchHost.Loaded += (_, _) =>
+        {
+            if (VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(SearchHost)) is FrameworkElement column)
+            {
+                column.SizeChanged += (_, _) => CenterSearch();
             }
         };
 
@@ -214,6 +230,27 @@ public sealed partial class MainWindow : Window
         int width = Math.Min((int)(area.Width * 0.85), 2400);
         int height = Math.Min((int)(area.Height * 0.85), 1500);
         AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height));
+    }
+
+    /// <summary>
+    /// The title bar centers its content in the space between the title and the right header, which
+    /// narrows while the sync indicator shows; shift the search so it stays centered on the window.
+    /// </summary>
+    private void CenterSearch()
+    {
+        if (VisualTreeHelper.GetParent(SearchHost) is not FrameworkElement presenter ||
+            VisualTreeHelper.GetParent(presenter) is not FrameworkElement column ||
+            presenter.HorizontalAlignment != HorizontalAlignment.Center)
+        {
+            SearchShift.X = 0;
+            return;
+        }
+
+        double width = SearchHost.Width;
+        double left = column.TransformToVisual(RootGrid).TransformPoint(default).X;
+        double right = left + column.ActualWidth - width;
+        double natural = left + (column.ActualWidth - width) / 2;
+        SearchShift.X = right < left ? 0 : Math.Clamp((RootGrid.ActualWidth - width) / 2, left, right) - natural;
     }
 
     private void UpdateSyncIndicator()

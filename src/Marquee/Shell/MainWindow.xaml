@@ -23,17 +23,21 @@
                     <ImageIconSource ImageSource="ms-appx:///Assets/AppIcon48.png" />
                 </TitleBar.IconSource>
                 <TitleBar.Content>
-                    <AutoSuggestBox x:Name="SearchBox"
-                                    MinWidth="320"
-                                    MaxWidth="600"
-                                    HorizontalAlignment="Stretch"
-                                    VerticalAlignment="Center"
-                                    PlaceholderText="Search movies and shows"
-                                    QueryIcon="Find"
-                                    UpdateTextOnSelect="False"
-                                    TextChanged="SearchBox_TextChanged"
-                                    SuggestionChosen="SearchBox_SuggestionChosen"
-                                    QuerySubmitted="SearchBox_QuerySubmitted" />
+                    <Grid x:Name="SearchHost" Width="500" VerticalAlignment="Center">
+                        <Grid.RenderTransform>
+                            <TranslateTransform x:Name="SearchShift" />
+                        </Grid.RenderTransform>
+                        <AutoSuggestBox x:Name="SearchBox"
+                                        CornerRadius="16"
+                                        TextBoxStyle="{StaticResource TitleSearchTextBoxStyle}"
+                                        PlaceholderText="Search movies and shows"
+                                        UpdateTextOnSelect="False"
+                                        TextChanged="SearchBox_TextChanged"
+                                        SuggestionChosen="SearchBox_SuggestionChosen"
+                                        QuerySubmitted="SearchBox_QuerySubmitted" />
+                        <FontIcon Glyph="&#xE721;" FontSize="14" Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                  IsHitTestVisible="False" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
                 </TitleBar.Content>
                 <TitleBar.RightHeader>
                     <StackPanel x:Name="SyncIndicator" Orientation="Horizontal" Spacing="8" Margin="0,0,8,0"
