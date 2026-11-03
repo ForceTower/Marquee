@@ -22,7 +22,14 @@ namespace Marquee.Player;
 /// </summary>
 public sealed partial class PlayerView : UserControl, IPlayerActions
 {
-    private static PlayerView? s_current;
+    /// <summary>
+    /// The one player, kept for the app's lifetime and only hidden when closed: letting it be
+    /// collected releases its DispatcherQueueTimers on the finalizer thread, which crashes
+    /// CoreMessagingXP with a stowed exception.
+    /// </summary>
+    private static PlayerView? s_instance;
+
+    private bool _open;
 
     /// <summary>Set by <c>--mute</c> for unattended tests.</summary>
     public static bool StartMuted { get; set; }
@@ -31,6 +38,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     private readonly PlayerControls _inline;
     private readonly DispatcherQueueTimer _tick;
     private readonly DispatcherQueueTimer _seekTimer;
+    private readonly DispatcherQueueTimer _messageTimer;
     private readonly IntPtr _hwnd;
     private readonly AppSettings _settings = App.Services.Settings.Current;
 
@@ -64,15 +72,17 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
         _tick = DispatcherQueue.CreateTimer();
         _tick.Interval = TimeSpan.FromMilliseconds(50);
-        _tick.Tick += (_, _) => OnTick();
+        _tick.Tick += (_, _) => Log.Guard("Player tick", OnTick);
 
         _seekTimer = DispatcherQueue.CreateTimer();
         _seekTimer.Interval = TimeSpan.FromMilliseconds(150);
         _seekTimer.IsRepeating = false;
-        _seekTimer.Tick += (_, _) => ApplyPendingSeek();
+        _seekTimer.Tick += (_, _) => Log.Guard("Seek", ApplyPendingSeek);
 
-        App.Window.AppWindow.Changed += OnAppWindowChanged;
-        App.Window.Activated += OnWindowActivated;
+        _messageTimer = DispatcherQueue.CreateTimer();
+        _messageTimer.Interval = TimeSpan.FromSeconds(6);
+        _messageTimer.IsRepeating = false;
+        _messageTimer.Tick += (_, _) => _vm.Message = null;
     }
 
     // ---- entry point ----
@@ -91,8 +101,8 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             return;
         }
 
-        s_current ??= new PlayerView();
-        await s_current.StartAsync(plan);
+        s_instance ??= new PlayerView();
+        await s_instance.StartAsync(plan);
     }
 
     private async Task StartAsync(PlaybackPlan plan)
@@ -114,13 +124,27 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             .Where(b => b is not ("HEVC" or "H.264")).Take(4).ToList();
         _vm.Chapters = plan.Request.Chapters;
         _vm.Duration = Math.Max(1, (item.DurationMs ?? 0) / 1000.0);
+        _vm.Position = plan.Request.Start.TotalSeconds;
+        _vm.Buffered = 0;
+        _pendingSeek = null;
+        _inline.Reset();
+        _overlayControls?.Reset();
         PlayerTitleBar.Title = _vm.Title;
         PlayerTitleBar.Subtitle = _vm.Subtitle;
 
-        if (Parent is null)
+        if (!_open)
         {
+            _open = true;
+            Log.Info("Player opened");
             App.Window.ShowPlayerLayer(this);
             App.Window.SetTitleBar(PlayerTitleBar);
+            App.Window.AppWindow.Changed += OnAppWindowChanged;
+            App.Window.Activated += OnWindowActivated;
+            _vm.IsFullScreen = false;
+            _vm.IsCompact = false;
+            _vm.ShowStatistics = false;
+            PlayerTitleBar.Visibility = Visibility.Visible;
+            PlayerTitleBar.IsBackButtonVisible = true;
             _tick.Start();
         }
 
@@ -408,6 +432,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     private void OnEnded()
     {
+        Log.Info($"Ended at {_engine?.Position} of {_engine?.Duration} ({_engine?.Kind})");
         if (_engine is { } engine)
         {
             ReportProgress(engine.Duration, engine.Duration, force: true, "stopped");
@@ -481,34 +506,29 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
         _cursorHidden = hidden;
         _mpv?.SetCursorHidden(hidden);
-        if (hidden)
+        if (!hidden)
         {
-            while (ShowCursor(false) >= 0)
-            {
-            }
+            _cursorBlocker?.Hide();
         }
-        else
+        else if (Stage.XamlRoot is not null)
         {
-            while (ShowCursor(true) < 0)
+            if (_cursorBlocker is null)
             {
+                _cursorBlocker = new CursorBlocker(_hwnd);
+                _cursorBlocker.Activity += PointerActivity;
             }
+
+            _cursorBlocker.Show(ToScreen(StageBounds()));
         }
     }
+
+    private CursorBlocker? _cursorBlocker;
 
     private void ShowMessage(string message)
     {
         _vm.Message = message;
-        var timer = DispatcherQueue.CreateTimer();
-        timer.Interval = TimeSpan.FromSeconds(6);
-        timer.IsRepeating = false;
-        timer.Tick += (_, _) =>
-        {
-            if (_vm.Message == message)
-            {
-                _vm.Message = null;
-            }
-        };
-        timer.Start();
+        _messageTimer.Stop();
+        _messageTimer.Start();
     }
 
     // ---- window: full screen, compact overlay, the mpv overlay ----
@@ -525,26 +545,47 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         return _overlay;
     }
 
-    /// <summary>Puts mpv's child window over the stage and the controls' overlay window over that.</summary>
+    /// <summary>
+    /// Puts mpv's child window over the stage and the controls' overlay window over that, and keeps
+    /// the cursor blocker on the stage while the cursor is hidden.
+    /// </summary>
     private void PositionVideo()
     {
-        if (Stage.XamlRoot is null || _engine != _mpv || _mpv is null)
+        if (Stage.XamlRoot is null)
         {
             return;
         }
 
+        var client = StageBounds();
+        if (_cursorHidden)
+        {
+            _cursorBlocker?.Show(ToScreen(client));
+        }
+
+        if (_engine == _mpv && _mpv is not null)
+        {
+            _mpv.SetBounds(client);
+            _overlay?.Place(ToScreen(client));
+        }
+    }
+
+    /// <summary>The stage in physical pixels, relative to the window's client area.</summary>
+    private RectInt32 StageBounds()
+    {
         double scale = Stage.XamlRoot.RasterizationScale;
         var origin = Stage.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
-        var client = new RectInt32(
+        return new RectInt32(
             (int)Math.Round(origin.X * scale),
             (int)Math.Round(origin.Y * scale),
             (int)Math.Round(Stage.ActualWidth * scale),
             (int)Math.Round(Stage.ActualHeight * scale));
-        _mpv.SetBounds(client);
+    }
 
+    private RectInt32 ToScreen(RectInt32 client)
+    {
         var topLeft = new POINT { X = client.X, Y = client.Y };
         ClientToScreen(_hwnd, ref topLeft);
-        _overlay?.Place(new RectInt32(topLeft.X, topLeft.Y, client.Width, client.Height));
+        return new RectInt32(topLeft.X, topLeft.Y, client.Width, client.Height);
     }
 
     private void Stage_SizeChanged(object sender, SizeChangedEventArgs e) => PositionVideo();
@@ -560,7 +601,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated && _settings.CompactOnFocusLoss &&
-            _engine?.IsPlaying == true && !_vm.IsCompact && !_vm.IsFullScreen && s_current == this)
+            _engine?.IsPlaying == true && !_vm.IsCompact && !_vm.IsFullScreen && _open)
         {
             ToggleCompact();
         }
@@ -577,7 +618,11 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         _vm.IsFullScreen = on;
         App.Window.AppWindow.SetPresenter(on ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Default);
         PlayerTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-        DispatcherQueue.TryEnqueue(PositionVideo);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            PositionVideo();
+            Root.Focus(FocusState.Programmatic);
+        });
     }
 
     public void ToggleCompact()
@@ -598,7 +643,11 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
         PlayerTitleBar.Visibility = Visibility.Visible;
         PlayerTitleBar.IsBackButtonVisible = !on;
-        DispatcherQueue.TryEnqueue(PositionVideo);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            PositionVideo();
+            Root.Focus(FocusState.Programmatic);
+        });
     }
 
     // ---- IPlayerActions ----
@@ -846,12 +895,23 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     public void Close()
     {
+        if (!_open)
+        {
+            return;
+        }
+
+        _open = false;
+        Log.Info($"Player closed at {_engine?.Position}");
         if (_engine is { } engine)
         {
             ReportProgress(engine.Position, engine.Duration > TimeSpan.Zero ? engine.Duration : TimeSpan.FromMilliseconds(_request?.Item.DurationMs ?? 0), force: true, "stopped");
         }
 
         _tick.Stop();
+        _seekTimer.Stop();
+        _messageTimer.Stop();
+        _vm.Message = null;
+        _vm.UpNext = null;
         SetCursorHidden(false);
         if (_vm.IsFullScreen || _vm.IsCompact)
         {
@@ -867,18 +927,42 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         });
 
         _overlay?.Close();
+        _overlay = null;
+        _overlayControls = null;
+        _cursorBlocker?.Dispose();
+        _cursorBlocker = null;
+        MfElement.SetMediaPlayer(null);
         _mf?.Dispose();
+        _mf = null;
         _mpv?.Dispose();
+        _mpv = null;
         _engine = null;
-        s_current = null;
+        _request = null;
         App.Window.HidePlayerLayer();
         App.Services.Db.NotifyChanged();
     }
 
     // ---- keyboard ----
 
-    private void Root_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    /// <summary>
+    /// Player shortcuts, fed from the window's root while the player is open, so they work wherever
+    /// focus is (a double-click into full screen, for one, leaves it outside the player).
+    /// </summary>
+    public static void HandleKey(KeyRoutedEventArgs e)
     {
+        if (s_instance is { _open: true } player)
+        {
+            Log.Guard("Player key", () => player.OnKey(e));
+        }
+    }
+
+    private void OnKey(KeyRoutedEventArgs e)
+    {
+        if (e.OriginalSource is TextBox or NumberBox or AutoSuggestBox)
+        {
+            return;
+        }
+
         bool ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         bool shift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         switch (e.Key)
@@ -943,6 +1027,11 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
                 _engine?.StepFrame(forward: true);
                 ShowControls();
                 break;
+            case (VirtualKey)188 when _engine?.Kind == EngineMode.MediaFoundation:
+                // Marquee's MKV reader restarts at keyframes, so Media Foundation's step-back
+                // lands a whole GOP earlier. mpv steps back exactly.
+                ShowMessage("Stepping back a frame works with mpv (Switch engine in playback settings)");
+                break;
             case (VirtualKey)188:
                 _engine?.StepFrame(forward: false);
                 ShowControls();
@@ -962,7 +1051,8 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             : $"Audio sync {_vm.AudioDelayMs:+0;-0;0} ms");
     }
 
-    private void PlayerTitleBar_BackRequested(TitleBar sender, object args) => Close();
+    // Closing removes this title bar from the window, so do it after its event has returned.
+    private void PlayerTitleBar_BackRequested(TitleBar sender, object args) => DispatcherQueue.TryEnqueue(() => Log.Guard("Close", Close));
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
@@ -973,9 +1063,6 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     [DllImport("user32.dll")]
     private static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
-
-    [DllImport("user32.dll")]
-    private static extern int ShowCursor(bool show);
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT point);

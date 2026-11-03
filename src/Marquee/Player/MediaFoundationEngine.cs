@@ -43,9 +43,9 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         _player.AutoPlay = false;
         _player.Volume = settings.Volume / 100;
-        _player.MediaOpened += (_, _) => _dispatcher.TryEnqueue(OnOpened);
-        _player.MediaEnded += (_, _) => _dispatcher.TryEnqueue(() => Ended?.Invoke());
-        _player.MediaFailed += (_, e) => _dispatcher.TryEnqueue(() =>
+        _player.MediaOpened += (_, _) => _dispatcher.TryEnqueue(() => Log.Guard("MF opened", OnOpened));
+        _player.MediaEnded += (_, _) => _dispatcher.TryEnqueue(() => Log.Guard("MF ended", () => Ended?.Invoke()));
+        _player.MediaFailed += (_, e) => _dispatcher.TryEnqueue(() => Log.Guard("MF failed", () =>
         {
             string message = $"Media Foundation couldn't play this file: {e.ErrorMessage} (0x{e.ExtendedErrorCode?.HResult:X8})";
             Log.Error(message);
@@ -57,9 +57,9 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
             {
                 Failed?.Invoke(message);
             }
-        });
+        }));
         _player.PlaybackSession.PlaybackStateChanged += (s, _) =>
-            _atmos?.OnVideoStateChanged(s.Position, s.PlaybackState == MediaPlaybackState.Playing);
+            Log.Guard("MF state", () => _atmos?.OnVideoStateChanged(s.Position, s.PlaybackState == MediaPlaybackState.Playing));
     }
 
     public MediaPlayer Player => _player;
@@ -149,6 +149,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
 
             var mkv = await Task.Run(() => MatroskaMediaSource.Open(location, _settings.DolbyVision, windowsDts, atmosTrack));
             mkv.Error += message => Log.Error($"MKV reader: {message}");
+            mkv.Trace += message => Log.Info($"MKV reader: {message}");
             Log.Info("MKV reader:\n  " + string.Join("\n  ", mkv.Description));
             if (atmosTrack is int track)
             {
@@ -183,7 +184,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         _pendingStart = request.Start > TimeSpan.Zero ? request.Start : null;
         _pendingAudioIndex = request.Audio;
         _item = new MediaPlaybackItem(_source);
-        _item.AudioTracksChanged += (_, _) => _dispatcher.TryEnqueue(MapAudioTracks);
+        _item.AudioTracksChanged += (_, _) => _dispatcher.TryEnqueue(() => Log.Guard("MF audio tracks", MapAudioTracks));
         _player.Source = _item;
         await _opened.Task;
     }

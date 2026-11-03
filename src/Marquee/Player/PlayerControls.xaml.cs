@@ -29,10 +29,7 @@ public sealed partial class PlayerControls : UserControl
         _actions = actions;
         InitializeComponent();
         Seek.ThumbToolTipValueConverter = new ClockConverter();
-        Seek.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) => _dragging = true), true);
-        Seek.AddHandler(PointerReleasedEvent, new PointerEventHandler((_, _) => EndDrag()), true);
-        Seek.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) => EndDrag()), true);
-        PointerMoved += (_, _) => _actions.PointerActivity();
+        Seek.Loaded += (_, _) => HookSeekThumb();
         ViewModel.PropertyChanged += OnViewModelChanged;
         Unloaded += (_, _) => ViewModel.PropertyChanged -= OnViewModelChanged;
         Sync();
@@ -180,15 +177,49 @@ public sealed partial class PlayerControls : UserControl
         UpdateTicks();
     }
 
-    private void EndDrag()
+    /// <summary>
+    /// Dragging is tracked with the slider's own thumb: pointer press/release pairs can lose the
+    /// release (to the overlay window, a double-click), which left the bar frozen.
+    /// </summary>
+    private void HookSeekThumb()
     {
-        if (!_dragging)
+        if (FindChild<Thumb>(Seek, "HorizontalThumb") is not { } thumb)
         {
             return;
         }
 
+        thumb.DragStarted += (_, _) => _dragging = true;
+        thumb.DragCompleted += (_, _) =>
+        {
+            _dragging = false;
+            _actions.SeekTo(Seek.Value, final: true);
+        };
+    }
+
+    private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T match && match.Name == name)
+            {
+                return match;
+            }
+
+            if (FindChild<T>(child, name) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>A new title is starting: forget any drag in progress and follow the new position.</summary>
+    public void Reset()
+    {
         _dragging = false;
-        _actions.SeekTo(Seek.Value, final: true);
+        Sync();
     }
 
     private void Seek_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

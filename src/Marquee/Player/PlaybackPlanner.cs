@@ -102,10 +102,7 @@ internal static class PlaybackPlanner
             return (EngineMode.Mpv, "Subtitles play through mpv for now, so Dolby Vision is shown as HDR10.");
         }
 
-        string why = dolbyVision ? "Dolby Vision" : objects ? "Atmos objects" : "DTS:X";
-        return (EngineMode.MediaFoundation, subtitleForcedOnly && r.Subtitle is not null
-            ? $"Playing through Media Foundation for {why}; forced subtitles need mpv for now."
-            : null);
+        return (EngineMode.MediaFoundation, null);
     }
 
     /// <summary>

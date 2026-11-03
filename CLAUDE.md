@@ -110,7 +110,8 @@ Next:
 - **Controls over mpv:** XAML can't draw over mpv's child HWND, so the controls live in
   `Player/OverlayWindow`: a borderless, owned, non-activating top-level window kept over the video,
   hosting a second `PlayerControls` bound to the same view model. Over Media Foundation the
-  controls are inline.
+  controls are inline. While the controls are auto-hidden, `Player/CursorBlocker` (an invisible
+  Win32 window over the stage) hides the mouse cursor.
 - **Logs:** `%LOCALAPPDATA%\Marquee\marquee.log` (startup, playback decisions, MKV reader,
   errors) and `mpv.log` next to it.
 
@@ -232,7 +233,7 @@ src/Marquee/              The app (WinUI 3)
   Shell/                  MainWindow, theme accent, formatting, log
   Pages/                  Home, Library, movie/show detail, Sources, Settings, match dialog
   Controls/               Poster/episode cards (hover lift + glow), episode row, SettingsCard
-  Player/                 Planner, engines, PlayerView, PlayerControls, overlay window
+  Player/                 Planner, engines, PlayerView, PlayerControls, overlay window, cursor blocker
   Data/                   SQLite library, models, settings, DPAPI secrets
   Plex/                   plex.tv + Plex Media Server API, JSON mapping
   Library/                Sync, folder scanner, file-name parser, TMDB, details, watch state
@@ -351,6 +352,14 @@ the media server's address, audio endpoint names. What the code assumes about an
   window, not the top-level one.
 - mpv's video window belongs to mpv's thread: `ShowCursor` from the UI thread doesn't hide the cursor
   over it; set mpv's `cursor-autohide` too.
+- XAML can't hide the cursor under a still pointer. WinUI sets cursors from its own input thread
+  (`Microsoft.InputStateManager`, with a `LiftedDMITCursorRecalculateClass` message window), so
+  `ShowCursor`/`SetCursor` from the UI thread are overridden. A `ProtectedCursor` change is only
+  honoured on real pointer movement, and every later recalculation (any layout change in the
+  controls triggers one) puts the arrow back. That held for a blank `ProtectedCursor` on an overlay
+  element, on the window root, and with a `SendInput` nudge. Only a plain Win32 window works:
+  `CursorBlocker` lays an invisible (`WS_EX_NOREDIRECTIONBITMAP`, no class cursor) window over the
+  stage while the controls are hidden, and the first movement, click or wheel turn removes it.
 - WinUI 3's XAML compiler doesn't support `x:ClassModifier`; XAML classes are public. A record used
   as `x:DataType` gets a generated parameterless activator, so `required` members break the build.
 - CommunityToolkit.Mvvm 8.4's partial-property `[ObservableProperty]` needs a preview C# version on

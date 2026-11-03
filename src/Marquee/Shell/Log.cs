@@ -19,6 +19,23 @@ internal static class Log
 
     public static void Info(string message) => Write("info", message);
 
+    /// <summary>
+    /// Runs a dispatcher callback (timer tick, enqueued work), logging instead of rethrowing:
+    /// an exception escaping one doesn't reach Application.UnhandledException; it tears the
+    /// process down from CoreMessagingXP as a stowed exception.
+    /// </summary>
+    public static void Guard(string context, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            Error(context, ex);
+        }
+    }
+
     public static void Error(string message, Exception? ex = null) => Write("error", ex is null ? message : $"{message}: {ex}");
 
     private static void Write(string level, string message)

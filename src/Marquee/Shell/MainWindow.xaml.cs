@@ -62,6 +62,13 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.F, VirtualKeyModifiers.Control, () => SearchBox.Focus(FocusState.Keyboard));
         AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, () => GoBack());
         AddAccelerator(VirtualKey.F5, VirtualKeyModifiers.None, () => _ = App.Services.Sync.SyncAllAsync());
+        RootGrid.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler((_, e) =>
+        {
+            if (PlayerLayer.Visibility == Visibility.Visible)
+            {
+                Player.PlayerView.HandleKey(e);
+            }
+        }), handledEventsToo: true);
         RootGrid.PointerPressed += (_, e) =>
         {
             if (e.GetCurrentPoint(RootGrid).Properties.IsXButton1Pressed && GoBack())

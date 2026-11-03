@@ -59,8 +59,8 @@ internal sealed class MpvEngine : IPlayerEngine
             ("network-timeout", "30"),
         ]);
         _mpv.Message += message => Log.Info($"mpv: {message}");
-        _mpv.StateChanged += id => _dispatcher.TryEnqueue(() => OnStateChanged(id));
-        _mpv.FileEnded += error => _dispatcher.TryEnqueue(() =>
+        _mpv.StateChanged += id => _dispatcher.TryEnqueue(() => Log.Guard($"mpv {id}", () => OnStateChanged(id)));
+        _mpv.FileEnded += error => _dispatcher.TryEnqueue(() => Log.Guard("mpv ended", () =>
         {
             _loaded?.TrySetException(new InvalidOperationException(error ?? "ended"));
             if (error is null)
@@ -71,7 +71,7 @@ internal sealed class MpvEngine : IPlayerEngine
             {
                 Failed?.Invoke($"mpv couldn't play this file: {error}");
             }
-        });
+        }));
 
         // Marquee's own settings win over mpv.conf, which loads during initialization.
         TrySet("hwdec", settings.HardwareDecoding);
