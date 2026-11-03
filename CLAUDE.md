@@ -69,8 +69,12 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
   HDR10:
   - SRT, WebVTT, ASS/SSA, PGS, VobSub and DVB, embedded or as files.
   - Rendered by libass and FFmpeg's bitmap decoders, as in mpv, into a XAML layer over the video.
-  - Checked by rendering frames from real WEB-DLs, UHD remuxes and anime ASS tracks, and in the app
-    over real Dolby Vision. Not yet checked by a human for timing.
+  - Checked by rendering frames from real WEB-DLs, UHD remuxes and anime ASS tracks.
+  - Confirmed by the user in the installed app, with SRT on a DV P8 WEB-DL and PGS on a DV P7
+    remux with TrueHD Atmos objects:
+    - Timing is right, including after seeks.
+    - The display stays in real Dolby Vision mode with subtitles showing.
+    - Bottom lines glide above the controls and back.
 
 Next:
 
