@@ -155,6 +155,9 @@ internal sealed class MpvEngine : IPlayerEngine
 
     public void ShowVideo(bool visible) => _host.Show(visible);
 
+    /// <summary>Fills the window, cropping what doesn't fit, rather than leaving bars.</summary>
+    public void SetFill(bool fill) => TrySet("panscan", fill ? "1" : "0");
+
     /// <summary>mpv's video window belongs to mpv's thread, so it hides the cursor itself.</summary>
     public void SetCursorHidden(bool hidden) => TrySet("cursor-autohide", hidden ? "always" : "no");
 
@@ -164,6 +167,11 @@ internal sealed class MpvEngine : IPlayerEngine
     /// </summary>
     public bool PlaysWithoutSound =>
         AudioTracks.Count > 0 && (_mpv.GetProperty("aid") is null or "no" || string.IsNullOrEmpty(_mpv.GetProperty("current-ao")));
+
+    public (int Width, int Height) VideoSize =>
+        int.TryParse(_mpv.GetProperty("dwidth"), out int width) && int.TryParse(_mpv.GetProperty("dheight"), out int height)
+            ? (width, height)
+            : (0, 0);
 
     /// <summary>Tries the audio device again, for when one has just appeared.</summary>
     public async Task RetryAudioAsync(int? ordinal)

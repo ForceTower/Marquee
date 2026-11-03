@@ -68,8 +68,14 @@ public sealed class AppSettings
     public ResumeMode Resume { get; set; } = ResumeMode.Always;
     public bool CompactOnFocusLoss { get; set; }
 
+    /// <summary>Where the mini player was last, so it comes back there.</summary>
+    public MiniPlayerPlacement? MiniPlayer { get; set; }
+
     public string MetadataLanguage { get; set; } = "en";
 }
+
+/// <summary>The mini player's picture in physical screen pixels; its height follows the video's aspect ratio.</summary>
+public sealed record MiniPlayerPlacement(int X, int Y, int Width);
 
 public sealed class SettingsStore
 {

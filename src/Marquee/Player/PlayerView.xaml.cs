@@ -8,6 +8,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.Devices.Enumeration;
 using Windows.Graphics;
 using Windows.Media.Devices;
@@ -52,6 +53,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     private MediaFoundationEngine? _mf;
     private SubtitleOverlay? _subtitleOverlay;
     private readonly DisplayMatcher _display = new();
+    private readonly MiniPlayer _miniPlayer;
     private OverlayWindow? _overlay;
     private PlayerControls? _overlayControls;
     private PlaybackRequest? _request;
@@ -71,6 +73,14 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     {
         InitializeComponent();
         _hwnd = WindowNative.GetWindowHandle(App.Window);
+        _miniPlayer = new MiniPlayer(_hwnd, App.Window.AppWindow);
+        _miniPlayer.DoubleClicked += () => DispatcherQueue.TryEnqueue(() => Log.Guard("Leave mini player", () =>
+        {
+            if (_vm.IsCompact)
+            {
+                ToggleCompact();
+            }
+        }));
         _inline = new PlayerControls(_vm, this);
         InlineHost.Child = _inline;
         _vm.PropertyChanged += (_, e) =>
@@ -78,6 +88,10 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             if (e.PropertyName == nameof(PlayerViewModel.ControlsVisible))
             {
                 UpdateSubtitleReserve();
+            }
+            else if (e.PropertyName == nameof(PlayerViewModel.IsCompact))
+            {
+                ApplyVideoFill();
             }
         };
         _vm.Volume = _settings.Volume;
@@ -217,6 +231,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             {
                 _mpv = new MpvEngine(_hwnd, _settings);
                 Hook(_mpv);
+                ApplyVideoFill();
             }
 
             _mf?.Pause();
@@ -367,6 +382,10 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         DetectPointerMovement();
         AutoHide();
         WatchAudio(engine);
+        if (_vm.IsCompact)
+        {
+            _miniPlayer.FitTo(VideoAspect());
+        }
 
         if (_vm.ShowStatistics && _ticks % 20 == 0)
         {
@@ -651,11 +670,19 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         }
 
         _lastCursor = cursor;
-        IntPtr root = GetAncestor(WindowFromPoint(cursor), GA_ROOT);
-        if (root == _hwnd || GetWindow(root, GW_OWNER) == _hwnd)
+        if (IsPlayerWindowAt(cursor))
         {
             PointerActivity();
         }
+    }
+
+    private bool PointerOverPlayer() => GetCursorPos(out var cursor) && IsPlayerWindowAt(cursor);
+
+    /// <summary>The main window or one it owns (mpv's controls overlay, the cursor blocker).</summary>
+    private bool IsPlayerWindowAt(POINT point)
+    {
+        IntPtr root = GetAncestor(WindowFromPoint(point), GA_ROOT);
+        return root == _hwnd || GetWindow(root, GW_OWNER) == _hwnd;
     }
 
     public void PointerActivity()
@@ -677,7 +704,11 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     private void AutoHide()
     {
         bool busy = _inline.IsBusy || _overlayControls?.IsBusy == true || _vm.UpNext is not null;
-        if (_vm.ControlsVisible && _engine?.IsPlaying == true && !busy && Environment.TickCount64 - _lastActivity > 3000)
+        bool idle = _engine?.IsPlaying == true && Environment.TickCount64 - _lastActivity > 3000;
+
+        // Like a browser's picture in picture, the mini player is only the picture unless the pointer is on it.
+        bool away = _vm.IsCompact && !PointerOverPlayer();
+        if (_vm.ControlsVisible && !busy && (idle || away))
         {
             _vm.ControlsVisible = false;
             SetCursorHidden(true);
@@ -703,6 +734,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             {
                 _cursorBlocker = new CursorBlocker(_hwnd);
                 _cursorBlocker.Activity += PointerActivity;
+                _cursorBlocker.Pressed += BeginWindowDrag;
             }
 
             _cursorBlocker.Show(ToScreen(StageBounds()));
@@ -798,7 +830,12 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        if (args.DidPositionChange || args.DidSizeChange || args.DidPresenterChange)
+        if (args.DidPositionChange && !args.DidSizeChange && !args.DidPresenterChange)
+        {
+            // A move leaves the layout as it is, so mpv's controls can follow a dragged mini player at once.
+            PositionVideo();
+        }
+        else if (args.DidPositionChange || args.DidSizeChange || args.DidPresenterChange)
         {
             DispatcherQueue.TryEnqueue(PositionVideo);
         }
@@ -819,6 +856,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         if (_vm.IsCompact)
         {
             _vm.IsCompact = false;
+            _miniPlayer.Exit();
         }
 
         _vm.IsFullScreen = on;
@@ -831,29 +869,56 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         });
     }
 
+    /// <summary>The mini player: the picture alone in a small always-on-top window (see <see cref="MiniPlayer"/>).</summary>
     public void ToggleCompact()
     {
         bool on = !_vm.IsCompact;
-        _vm.IsFullScreen = false;
-        _vm.IsCompact = on;
-        if (on)
+        if (on && _vm.IsFullScreen)
         {
-            var presenter = CompactOverlayPresenter.Create();
-            presenter.InitialSize = CompactOverlaySize.Medium;
-            App.Window.AppWindow.SetPresenter(presenter);
-        }
-        else
-        {
+            _vm.IsFullScreen = false;
             App.Window.AppWindow.SetPresenter(AppWindowPresenterKind.Default);
         }
 
-        PlayerTitleBar.Visibility = Visibility.Visible;
-        PlayerTitleBar.IsBackButtonVisible = !on;
+        _vm.IsCompact = on;
+        PlayerTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        if (on)
+        {
+            _miniPlayer.Enter(VideoAspect());
+        }
+        else
+        {
+            _miniPlayer.Exit();
+        }
+
         DispatcherQueue.TryEnqueue(() =>
         {
             PositionVideo();
             Root.Focus(FocusState.Programmatic);
         });
+    }
+
+    public void BeginWindowDrag()
+    {
+        if (_vm.IsCompact)
+        {
+            _miniPlayer.BeginDrag();
+        }
+    }
+
+    /// <summary>
+    /// The mini player is shaped to the video, so filling it crops a pixel at most, where fitting
+    /// would leave hairline bars against the rounded corners.
+    /// </summary>
+    private void ApplyVideoFill()
+    {
+        MfElement.Stretch = _vm.IsCompact ? Stretch.UniformToFill : Stretch.Uniform;
+        _mpv?.SetFill(_vm.IsCompact);
+    }
+
+    private double VideoAspect()
+    {
+        var (width, height) = _engine?.VideoSize ?? (0, 0);
+        return width > 0 && height > 0 ? (double)width / height : 0;
     }
 
     // ---- IPlayerActions ----
@@ -1120,7 +1185,13 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         _vm.Message = null;
         _vm.UpNext = null;
         SetCursorHidden(false);
-        if (_vm.IsFullScreen || _vm.IsCompact)
+        if (_vm.IsCompact)
+        {
+            _vm.IsCompact = false;
+            _miniPlayer.Exit();
+        }
+
+        if (_vm.IsFullScreen)
         {
             App.Window.AppWindow.SetPresenter(AppWindowPresenterKind.Default);
         }

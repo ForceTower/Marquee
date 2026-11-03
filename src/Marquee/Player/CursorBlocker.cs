@@ -57,6 +57,9 @@ internal sealed class CursorBlocker : IDisposable
     /// <summary>Movement, a click or the wheel over the hidden-cursor area.</summary>
     public event Action? Activity;
 
+    /// <summary>The primary button went down over the hidden-cursor area (raised after <see cref="Activity"/>).</summary>
+    public event Action? Pressed;
+
     public void Show(RectInt32 screenBounds)
     {
         GetCursorPos(out _shownAt);
@@ -94,7 +97,11 @@ internal sealed class CursorBlocker : IDisposable
                 }
 
                 return 0;
-            case WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN or WM_XBUTTONDOWN or WM_MOUSEWHEEL or WM_MOUSEHWHEEL:
+            case WM_LBUTTONDOWN:
+                blocker.RaiseActivity();
+                Log.Guard("Cursor blocker press", () => blocker.Pressed?.Invoke());
+                return 0;
+            case WM_RBUTTONDOWN or WM_MBUTTONDOWN or WM_XBUTTONDOWN or WM_MOUSEWHEEL or WM_MOUSEHWHEEL:
                 blocker.RaiseActivity();
                 return 0;
             default:

@@ -32,6 +32,12 @@
                 <Setter Property="CornerRadius" Value="6" />
             </Style>
 
+            <Style x:Key="MiniButtonStyle" TargetType="Button" BasedOn="{StaticResource PlayerButtonStyle}">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="CornerRadius" Value="16" />
+            </Style>
+
             <DataTemplate x:Key="TrackTemplate" x:DataType="local:TrackOption">
                 <Grid ColumnSpacing="12" Padding="0,8">
                     <Grid.ColumnDefinitions>
@@ -62,19 +68,20 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid x:Name="Root" Background="Transparent" DoubleTapped="Root_DoubleTapped">
+    <Grid x:Name="Root" Background="Transparent" DoubleTapped="Root_DoubleTapped" PointerPressed="Root_PointerPressed">
         <ProgressRing x:Name="Spinner" Width="56" Height="56" IsActive="{x:Bind ViewModel.IsBuffering, Mode=OneWay}"
                       HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
 
         <Grid x:Name="Chrome" Opacity="{x:Bind local:Bind.Opacity(ViewModel.ControlsVisible), Mode=OneWay}"
-              IsHitTestVisible="{x:Bind ViewModel.ControlsVisible, Mode=OneWay}">
+              IsHitTestVisible="{x:Bind ViewModel.ControlsVisible, Mode=OneWay}"
+              Visibility="{x:Bind local:Bind.VisNot(ViewModel.IsCompact), Mode=OneWay}">
             <Grid.OpacityTransition>
                 <ScalarTransition Duration="0:0:0.2" />
             </Grid.OpacityTransition>
 
-            <!-- Top bar: shown over the video in full screen and in the compact overlay. -->
+            <!-- Top bar: shown over the video in full screen (the window's title bar has it otherwise). -->
             <Grid x:Name="TopBar" VerticalAlignment="Top" Padding="20,16,24,56" ColumnSpacing="14"
-                  Visibility="{x:Bind local:Bind.VisEither(ViewModel.IsFullScreen, ViewModel.IsCompact), Mode=OneWay}">
+                  Visibility="{x:Bind local:Bind.Vis(ViewModel.IsFullScreen), Mode=OneWay}">
                 <Grid.Background>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                         <GradientStop Offset="0" Color="#A6000000" />
@@ -251,16 +258,96 @@
             </Border>
         </Grid>
 
+        <!-- Mini player: browser-style picture-in-picture controls over the whole picture, shown on hover. -->
+        <Grid x:Name="MiniChrome" Opacity="{x:Bind local:Bind.Opacity(ViewModel.ControlsVisible), Mode=OneWay}"
+              IsHitTestVisible="{x:Bind ViewModel.ControlsVisible, Mode=OneWay}"
+              Visibility="{x:Bind local:Bind.Vis(ViewModel.IsCompact), Mode=OneWay}">
+            <Grid.OpacityTransition>
+                <ScalarTransition Duration="0:0:0.15" />
+            </Grid.OpacityTransition>
+
+            <!-- The scrim covers the whole picture, so over mpv the overlay window takes every press
+                 for dragging (where it's fully transparent, presses fall through to mpv's window). -->
+            <Border x:Name="MiniScrim" CornerRadius="8">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Offset="0" Color="#80000000" />
+                        <GradientStop Offset="0.3" Color="#47000000" />
+                        <GradientStop Offset="0.65" Color="#47000000" />
+                        <GradientStop Offset="1" Color="#B3000000" />
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+
+            <Button Style="{StaticResource MiniButtonStyle}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"
+                    Click="Compact_Click" AutomationProperties.Name="Back to the full player" ToolTipService.ToolTip="Back to the full player (Esc)">
+                <FontIcon Glyph="&#xEE47;" FontSize="14" />
+            </Button>
+            <Button Style="{StaticResource MiniButtonStyle}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
+                    Click="Back_Click" AutomationProperties.Name="Close" ToolTipService.ToolTip="Close">
+                <FontIcon Glyph="&#xE711;" FontSize="14" />
+            </Button>
+
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="16"
+                        Visibility="{x:Bind local:Bind.VisNot(ViewModel.HasUpNext), Mode=OneWay}">
+                <Button Style="{StaticResource MiniButtonStyle}" Width="44" Height="44" CornerRadius="22" Click="Back10_Click"
+                        AutomationProperties.Name="Back 10 seconds" ToolTipService.ToolTip="Back 10 seconds (←)">
+                    <FontIcon Glyph="&#xED3C;" FontSize="20" />
+                </Button>
+                <Button Style="{StaticResource MiniButtonStyle}" Width="56" Height="56" CornerRadius="28" Click="Play_Click"
+                        AutomationProperties.Name="Play or pause" ToolTipService.ToolTip="Play/Pause (Space)">
+                    <FontIcon Glyph="{x:Bind local:Bind.PlayGlyph(ViewModel.IsPlaying), Mode=OneWay}" FontSize="26" />
+                </Button>
+                <Button Style="{StaticResource MiniButtonStyle}" Width="44" Height="44" CornerRadius="22" Click="Forward30_Click"
+                        AutomationProperties.Name="Forward 30 seconds" ToolTipService.ToolTip="Forward 30 seconds (→)">
+                    <FontIcon Glyph="&#xED3D;" FontSize="20" />
+                </Button>
+            </StackPanel>
+
+            <Grid x:Name="MiniBottom" VerticalAlignment="Bottom" Padding="14,0,14,4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock VerticalAlignment="Bottom" FontSize="12" Foreground="#C9CED6">
+                    <Run Text="{x:Bind ViewModel.PositionText, Mode=OneWay}" Foreground="#F3F4F6" /><Run Text="  /  " /><Run Text="{x:Bind ViewModel.DurationText, Mode=OneWay}" />
+                </TextBlock>
+                <Button HorizontalAlignment="Right" Height="32" Padding="14,0" CornerRadius="16"
+                        Background="#D924272C" BorderBrush="#33FFFFFF" BorderThickness="1" FontSize="13" FontWeight="SemiBold"
+                        Content="{x:Bind ViewModel.SkipLabel, Mode=OneWay}"
+                        Visibility="{x:Bind local:Bind.Vis(ViewModel.HasSkip), Mode=OneWay}" Click="Skip_Click" />
+                <Grid Grid.Row="1" Height="28">
+                    <Rectangle Height="4" RadiusX="2" RadiusY="2" Fill="#38FFFFFF" VerticalAlignment="Center" Margin="10,0" />
+                    <Slider x:Name="MiniSeek" Minimum="0" Maximum="1" StepFrequency="0.1" SmallChange="10" LargeChange="60"
+                            VerticalAlignment="Center" IsThumbToolTipEnabled="True" ValueChanged="Seek_ValueChanged"
+                            AutomationProperties.Name="Seek" />
+                </Grid>
+            </Grid>
+
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Margin="14,0" Padding="14,12" MaxWidth="340"
+                    CornerRadius="8" Background="#F024272C" BorderBrush="#1FFFFFFF" BorderThickness="1"
+                    Visibility="{x:Bind local:Bind.Vis(ViewModel.HasUpNext), Mode=OneWay}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind local:Bind.UpNextHeader(ViewModel.UpNextSeconds), Mode=OneWay}" FontSize="11" FontWeight="SemiBold" CharacterSpacing="60" Foreground="#A9AFB8" />
+                    <TextBlock Text="{x:Bind local:Bind.UpNextTitle(ViewModel.UpNext), Mode=OneWay}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Style="{StaticResource AccentButtonStyle}" Content="Play now" Padding="12,4" Click="UpNextPlay_Click" />
+                        <Button Content="Cancel" Padding="12,4" Click="UpNextCancel_Click" Background="#2B2F35" BorderBrush="#24FFFFFF" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
         <!-- Statistics -->
-        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24,96,0,0" Padding="14" CornerRadius="6" Background="#CC000000"
+        <Border x:Name="StatisticsBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24,96,0,0" Padding="14" CornerRadius="6" Background="#CC000000"
                 Visibility="{x:Bind local:Bind.Vis(ViewModel.ShowStatistics), Mode=OneWay}" IsHitTestVisible="False" MaxWidth="720">
             <TextBlock Text="{x:Bind ViewModel.Statistics, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas" FontSize="12" TextWrapping="Wrap" />
         </Border>
 
         <!-- Messages ("Subtitles play through mpv…") -->
-        <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,80,0,0" Padding="16,10" CornerRadius="6" Background="#E624272C"
+        <Border x:Name="MessageCard" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,80,0,0" Padding="16,10" CornerRadius="6" Background="#E624272C"
                 Visibility="{x:Bind local:Bind.Vis(ViewModel.HasMessage), Mode=OneWay}" IsHitTestVisible="False" MaxWidth="640">
-            <TextBlock Text="{x:Bind ViewModel.Message, Mode=OneWay}" FontSize="13" TextWrapping="Wrap" />
+            <TextBlock x:Name="MessageText" Text="{x:Bind ViewModel.Message, Mode=OneWay}" FontSize="13" TextWrapping="Wrap" />
         </Border>
     </Grid>
 </UserControl>

@@ -476,19 +476,22 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
             return;
         }
 
-        var (width, height) = VideoSize();
+        var (width, height) = VideoSize;
         subtitles.Layout = SubtitleLayout.Fit(_subtitleArea.Width, _subtitleArea.Height, width, height) with { BottomReserve = _subtitleReserve };
     }
 
-    private (int Width, int Height) VideoSize()
+    public (int Width, int Height) VideoSize
     {
-        var session = _player.PlaybackSession;
-        if (session.NaturalVideoWidth > 0 && session.NaturalVideoHeight > 0)
+        get
         {
-            return ((int)session.NaturalVideoWidth, (int)session.NaturalVideoHeight);
-        }
+            var session = _player.PlaybackSession;
+            if (session.NaturalVideoWidth > 0 && session.NaturalVideoHeight > 0)
+            {
+                return ((int)session.NaturalVideoWidth, (int)session.NaturalVideoHeight);
+            }
 
-        return (_videoTrack?.Width ?? 0, _videoTrack?.Height ?? 0);
+            return (_videoTrack?.Width ?? 0, _videoTrack?.Height ?? 0);
+        }
     }
 
     private async Task StartSubtitlesAsync(SubtitleChoice choice)
@@ -498,7 +501,7 @@ internal sealed class MediaFoundationEngine : IPlayerEngine
         var mkv = _mkv;
         var clock = _clock;
         var video = _videoTrack;
-        var (width, height) = VideoSize();
+        var (width, height) = VideoSize;
         double frameRate = video is { DefaultDurationNs: > 0 } ? 1e9 / video.DefaultDurationNs : 24;
         var style = TextStyle.Parse(_settings.SubtitleColor, _settings.SubtitleOutlineColor);
         void Report(string message) => Log.Info($"Subtitles: {message}");

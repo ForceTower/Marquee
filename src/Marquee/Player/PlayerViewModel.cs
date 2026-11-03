@@ -61,6 +61,9 @@ public interface IPlayerActions
     void ToggleMute();
     void ToggleFullScreen();
     void ToggleCompact();
+
+    /// <summary>The primary button went down on the picture (outside any control).</summary>
+    void BeginWindowDrag();
     void Close();
     void SelectAudio(int ordinal);
     void SelectSubtitle(int? ordinal);

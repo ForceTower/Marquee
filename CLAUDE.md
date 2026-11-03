@@ -142,6 +142,16 @@ Next:
   hosting a second `PlayerControls` bound to the same view model. Over Media Foundation the
   controls are inline. While the controls are auto-hidden, `Player/CursorBlocker` (an invisible
   Win32 window over the stage) hides the mouse cursor.
+- **Mini player** (`Player/MiniPlayer`, the picture-in-picture button): the main window itself,
+  reshaped. It has no title bar, rounded corners and is always on top; it opens bottom-right or
+  where it was last (`MiniPlayer` in settings).
+  - The window is sized to the video's aspect and held to it while resizing (`WM_SIZING`
+    subclass), and the video fills it (MF `UniformToFill`, mpv `panscan=1`), so no bars show.
+  - It drags from anywhere by polling the pointer each frame, because the press can land in the
+    main window, mpv's overlay or the cursor blocker. Windows' move loop would Aero Snap it.
+  - The controls (`MiniChrome`) show only while the pointer is over it. A double-click returns to
+    the full player.
+  - `CompactOverlayPresenter` isn't used: it always keeps a title bar.
 - **Logs:** `%LOCALAPPDATA%\Marquee\marquee.log` (startup, playback decisions, MKV reader,
   errors) and `mpv.log` next to it.
 
@@ -453,6 +463,10 @@ the media server's address, audio endpoint names. What the code assumes about an
   the mouse through, so `PlayerView` polls the cursor (`GetCursorPos` + `WindowFromPoint` →
   `GetAncestor(GA_ROOT)`) to show the controls; `WindowFromPoint` returns the XAML island's child
   window, not the top-level one.
+- A borderless `OverlappedPresenter` window doesn't stay borderless: the presenter puts
+  `WS_DLGFRAME` back after the styles are stripped, which shrinks the client area and draws a
+  white 3-pixel frame (it showed around mpv's video). `OverlayWindow` answers `WM_NCCALCSIZE` itself
+  so there's no non-client area whatever the style says.
 - mpv's video window belongs to mpv's thread: `ShowCursor` from the UI thread doesn't hide the cursor
   over it; set mpv's `cursor-autohide` too.
 - XAML can't hide the cursor under a still pointer. WinUI sets cursors from its own input thread

@@ -74,6 +74,9 @@ internal interface IPlayerEngine : IDisposable
     /// <summary>Playing with an audio track chosen but no audio output to play it on.</summary>
     bool PlaysWithoutSound { get; }
 
+    /// <summary>The picture's display size (pixel aspect applied), or (0, 0) until it's known.</summary>
+    (int Width, int Height) VideoSize { get; }
+
     event Action? Opened;
     event Action? Ended;
     event Action<string>? Failed;

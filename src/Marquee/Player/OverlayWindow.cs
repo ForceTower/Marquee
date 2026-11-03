@@ -35,6 +35,7 @@ internal sealed class OverlayWindow : Window
 
         _hwnd = WindowNative.GetWindowHandle(this);
         SetWindowLongPtr(_hwnd, GWLP_HWNDPARENT, owner);
+        SetWindowSubclass(_hwnd, s_subclass, UIntPtr.Zero, UIntPtr.Zero);
         long style = GetWindowLongPtr(_hwnd, GWL_STYLE).ToInt64();
         SetWindowLongPtr(_hwnd, GWL_STYLE, (IntPtr)((style & ~(WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME)) | WS_POPUP));
         long ex = GetWindowLongPtr(_hwnd, GWL_EXSTYLE).ToInt64();
@@ -83,6 +84,25 @@ internal sealed class OverlayWindow : Window
     }
 
     public void Hide() => ShowWindow(_hwnd, SW_HIDE);
+
+    /// <summary>
+    /// No non-client area, whatever the style says. The presenter puts a dialog frame (WS_DLGFRAME)
+    /// back after the styles above are stripped, which shrank the client area and drew a white
+    /// 3-pixel border around the video.
+    /// </summary>
+    private static IntPtr OnMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data) =>
+        msg == WM_NCCALCSIZE && wParam != IntPtr.Zero ? IntPtr.Zero : DefSubclassProc(hwnd, msg, wParam, lParam);
+
+    private delegate IntPtr SubclassProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
+
+    private static readonly SubclassProc s_subclass = OnMessage;
+    private const uint WM_NCCALCSIZE = 0x0083;
+
+    [DllImport("comctl32.dll")]
+    private static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, UIntPtr data);
+
+    [DllImport("comctl32.dll")]
+    private static extern IntPtr DefSubclassProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     private const int GWLP_HWNDPARENT = -8;
     private const int GWL_STYLE = -16;

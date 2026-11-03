@@ -16,8 +16,6 @@ internal static class Bind
 
     public static Visibility VisNot(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
 
-    public static Visibility VisEither(bool a, bool b) => a || b ? Visibility.Visible : Visibility.Collapsed;
-
     public static Visibility VisAny(IEnumerable? items) => items?.GetEnumerator().MoveNext() == true ? Visibility.Visible : Visibility.Collapsed;
 
     public static double Opacity(bool visible) => visible ? 1 : 0;

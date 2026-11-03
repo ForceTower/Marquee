@@ -18,6 +18,7 @@ namespace Marquee.Player;
 public sealed partial class PlayerControls : UserControl
 {
     private readonly IPlayerActions _actions;
+    private readonly List<Thumb> _seekThumbs = [];
     private bool _updating;
     private bool _dragging;
     private bool _filling;
@@ -29,7 +30,11 @@ public sealed partial class PlayerControls : UserControl
         _actions = actions;
         InitializeComponent();
         Seek.ThumbToolTipValueConverter = new ClockConverter();
-        Seek.Loaded += (_, _) => HookSeekThumb();
+        MiniSeek.ThumbToolTipValueConverter = new ClockConverter();
+
+        // The mini player's slider gets its template only once it first shows, hence SizeChanged.
+        Seek.Loaded += (_, _) => HookSeekThumb(Seek);
+        MiniSeek.SizeChanged += (_, _) => HookSeekThumb(MiniSeek);
         ViewModel.PropertyChanged += OnViewModelChanged;
         Unloaded += (_, _) => ViewModel.PropertyChanged -= OnViewModelChanged;
         Sync();
@@ -41,7 +46,7 @@ public sealed partial class PlayerControls : UserControl
     public bool IsBusy => _dragging || _openFlyouts > 0;
 
     /// <summary>The bottom bar's controls in DIPs, from the time row down (not the gradient fading in above it).</summary>
-    public double BottomControlsHeight => BottomBar.ActualHeight - BottomBar.Padding.Top;
+    public double BottomControlsHeight => ViewModel.IsCompact ? MiniBottom.ActualHeight : BottomBar.ActualHeight - BottomBar.Padding.Top;
 
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -90,8 +95,12 @@ public sealed partial class PlayerControls : UserControl
         }
 
         _updating = true;
-        Seek.Maximum = Math.Max(1, ViewModel.Duration);
-        Seek.Value = Math.Clamp(ViewModel.Position, 0, Seek.Maximum);
+        foreach (var slider in new[] { Seek, MiniSeek })
+        {
+            slider.Maximum = Math.Max(1, ViewModel.Duration);
+            slider.Value = Math.Clamp(ViewModel.Position, 0, slider.Maximum);
+        }
+
         _updating = false;
         UpdateBuffered();
     }
@@ -152,26 +161,14 @@ public sealed partial class PlayerControls : UserControl
         };
     }
 
+    /// <summary>The mini player has its own controls (<c>MiniChrome</c>); the shared overlays move in below its top buttons.</summary>
     private void UpdateCompact()
     {
         bool compact = ViewModel.IsCompact;
-        var collapsedInCompact = compact ? Visibility.Collapsed : Visibility.Visible;
-        VolumeGroup.Visibility = collapsedInCompact;
-        SettingsButton.Visibility = collapsedInCompact;
-        FullScreenButton.Visibility = collapsedInCompact;
-        ChapterText.Visibility = collapsedInCompact;
-        BadgePanel.Visibility = collapsedInCompact;
-        TracksButton.Visibility = collapsedInCompact;
-        if (compact)
-        {
-            ChaptersButton.Visibility = Visibility.Collapsed;
-        }
-
-        BottomBar.Padding = compact ? new Thickness(12, 24, 12, 8) : new Thickness(24, 64, 24, 20);
-        TopBar.Padding = compact ? new Thickness(8, 8, 8, 24) : new Thickness(20, 16, 24, 56);
-        PlayButton.Width = PlayButton.Height = compact ? 40 : 52;
-        PlayButton.CornerRadius = new CornerRadius(compact ? 20 : 26);
-        TimeRow.Visibility = collapsedInCompact;
+        MessageCard.Margin = compact ? new Thickness(12, 48, 12, 0) : new Thickness(0, 80, 0, 0);
+        MessageCard.Padding = compact ? new Thickness(12, 8, 12, 8) : new Thickness(16, 10, 16, 10);
+        MessageText.FontSize = compact ? 12 : 13;
+        StatisticsBox.Margin = compact ? new Thickness(8, 48, 8, 0) : new Thickness(24, 96, 0, 0);
     }
 
     private void SeekArea_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -184,18 +181,19 @@ public sealed partial class PlayerControls : UserControl
     /// Dragging is tracked with the slider's own thumb: pointer press/release pairs can lose the
     /// release (to the overlay window, a double-click), which left the bar frozen.
     /// </summary>
-    private void HookSeekThumb()
+    private void HookSeekThumb(Slider slider)
     {
-        if (FindChild<Thumb>(Seek, "HorizontalThumb") is not { } thumb)
+        if (FindChild<Thumb>(slider, "HorizontalThumb") is not { } thumb || _seekThumbs.Contains(thumb))
         {
             return;
         }
 
+        _seekThumbs.Add(thumb);
         thumb.DragStarted += (_, _) => _dragging = true;
         thumb.DragCompleted += (_, _) =>
         {
             _dragging = false;
-            _actions.SeekTo(Seek.Value, final: true);
+            _actions.SeekTo(slider.Value, final: true);
         };
     }
 
@@ -322,9 +320,19 @@ public sealed partial class PlayerControls : UserControl
 
     private void Root_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (e.OriginalSource is FrameworkElement { Name: "Root" or "Chrome" or "TopBar" or "BottomBar" })
+        // The mini player spots its own double-clicks, since a press there can land in another window.
+        if (!ViewModel.IsCompact && e.OriginalSource is FrameworkElement { Name: "Root" or "Chrome" or "TopBar" or "BottomBar" })
         {
             _actions.ToggleFullScreen();
+        }
+    }
+
+    /// <summary>Buttons and sliders handle their own presses, so this is a press on the picture.</summary>
+    private void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (ViewModel.IsCompact && e.GetCurrentPoint(Root).Properties.IsLeftButtonPressed)
+        {
+            _actions.BeginWindowDrag();
         }
     }
 
