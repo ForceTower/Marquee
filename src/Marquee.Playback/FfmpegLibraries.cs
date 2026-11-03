@@ -3,9 +3,9 @@ using FFmpeg.AutoGen;
 namespace Marquee.Playback;
 
 /// <summary>
-/// The LGPL FFmpeg build bundled in the output's ffmpeg folder: libavcodec for audio and bitmap
-/// subtitle decoding, libavformat for MPEG-TS demuxing and MP4 subtitle reading. It's separate from
-/// the FFmpeg linked into libmpv.
+/// The LGPL FFmpeg build bundled in the output's ffmpeg folder: libavcodec for audio, bitmap
+/// subtitle and seek-preview decoding, libavformat for MPEG-TS demuxing and MP4 subtitle reading.
+/// It's separate from the FFmpeg linked into libmpv.
 /// </summary>
 internal static class FfmpegLibraries
 {

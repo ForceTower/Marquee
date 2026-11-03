@@ -86,6 +86,12 @@ public partial class App : Application
             return;
         }
 
+        if (options is { PreviewTestFolder: { } previews, Path: { } video })
+        {
+            _ = RunPreviewTestAsync(video, previews);
+            return;
+        }
+
         if (options is { AtmosLab: { } atmos, Bed: { } bed })
         {
             _labWindow = new AtmosLabWindow(atmos, bed);
@@ -159,6 +165,21 @@ public partial class App : Application
 
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "subtitles.txt"), result);
+        Exit();
+    }
+
+    private async Task RunPreviewTestAsync(string media, string folder)
+    {
+        try
+        {
+            await Task.Run(() => Marquee.Playback.Previews.ThumbnailProbe.RunAsync(media, folder));
+        }
+        catch (Exception ex)
+        {
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "report.txt"), $"failed: {ex}");
+        }
+
         Exit();
     }
 }

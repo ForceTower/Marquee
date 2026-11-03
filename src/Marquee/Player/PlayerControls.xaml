@@ -123,7 +123,7 @@
                     <Rectangle x:Name="TrackBack" Height="4" RadiusX="2" RadiusY="2" Fill="#38FFFFFF" VerticalAlignment="Center" Margin="10,0" />
                     <Rectangle x:Name="BufferedBar" Height="4" RadiusX="2" RadiusY="2" Fill="#4DFFFFFF" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0" Width="0" />
                     <Slider x:Name="Seek" Minimum="0" Maximum="1" StepFrequency="0.1" SmallChange="10" LargeChange="60"
-                            VerticalAlignment="Center" IsThumbToolTipEnabled="True" ValueChanged="Seek_ValueChanged"
+                            VerticalAlignment="Center" IsThumbToolTipEnabled="False" ValueChanged="Seek_ValueChanged"
                             AutomationProperties.Name="Seek" />
                     <Canvas x:Name="ChapterTicks" IsHitTestVisible="False" Margin="10,0" />
                 </Grid>
@@ -316,10 +316,10 @@
                         Background="#D924272C" BorderBrush="#33FFFFFF" BorderThickness="1" FontSize="13" FontWeight="SemiBold"
                         Content="{x:Bind ViewModel.SkipLabel, Mode=OneWay}"
                         Visibility="{x:Bind local:Bind.Vis(ViewModel.HasSkip), Mode=OneWay}" Click="Skip_Click" />
-                <Grid Grid.Row="1" Height="28">
+                <Grid x:Name="MiniSeekArea" Grid.Row="1" Height="28">
                     <Rectangle Height="4" RadiusX="2" RadiusY="2" Fill="#38FFFFFF" VerticalAlignment="Center" Margin="10,0" />
                     <Slider x:Name="MiniSeek" Minimum="0" Maximum="1" StepFrequency="0.1" SmallChange="10" LargeChange="60"
-                            VerticalAlignment="Center" IsThumbToolTipEnabled="True" ValueChanged="Seek_ValueChanged"
+                            VerticalAlignment="Center" IsThumbToolTipEnabled="False" ValueChanged="Seek_ValueChanged"
                             AutomationProperties.Name="Seek" />
                 </Grid>
             </Grid>
@@ -349,5 +349,22 @@
                 Visibility="{x:Bind local:Bind.Vis(ViewModel.HasMessage), Mode=OneWay}" IsHitTestVisible="False" MaxWidth="640">
             <TextBlock x:Name="MessageText" Text="{x:Bind ViewModel.Message, Mode=OneWay}" FontSize="13" TextWrapping="Wrap" />
         </Border>
+
+        <!-- Seek preview: the picture, time and chapter under the pointer while it skims a seek bar. -->
+        <Canvas IsHitTestVisible="False">
+            <StackPanel x:Name="PreviewCard" Visibility="Collapsed" Spacing="6" SizeChanged="PreviewCard_SizeChanged">
+                <Grid x:Name="PreviewBox" CornerRadius="8" Background="#1B1D21">
+                    <Image x:Name="PreviewImage" Stretch="Fill" />
+                    <Border CornerRadius="8" BorderThickness="1" BorderBrush="#40FFFFFF" />
+                </Grid>
+                <Border HorizontalAlignment="Center" Padding="10,4" CornerRadius="6" Background="#E61B1D21" BorderBrush="#1FFFFFFF" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock x:Name="PreviewTime" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="PreviewChapter" FontSize="11" Foreground="#C9CED6" HorizontalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Canvas>
     </Grid>
 </UserControl>

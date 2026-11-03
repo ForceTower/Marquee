@@ -102,6 +102,11 @@ engines. `spike/EngineSpike` remains the engine test harness. Engine work proven
       unwrapped onto PID 0x1015 with the RPUs, a DOVI descriptor naming the base PID): Dolby
       Vision with a correct picture. Not yet tried on a real disc's M2TS.
   - Also checked by rendering: tx3g italics, and PGS from the M2TS.
+- **Seek-bar previews** (2026-11-03): skimming the seek bar shows the picture there, with its time
+  and chapter, in both engines. The frames are Marquee's own keyframe decodes, so they don't depend
+  on Plex's BIF thumbnails, which a server has only if it's set to generate them. They're
+  tone-mapped to SDR, and Dolby Vision profile 5 is reshaped through its RPU. Checked by rendering on DV P5, P7 MEL, P8 MKV and MP4, a UHD M2TS, and SDR H.264, AV1,
+  VC-1, MPEG-2 and VP9; confirmed by the user in the app.
 
 Next:
 
@@ -141,6 +146,16 @@ Next:
   scrobbles at 90 % or the final credits, shows skip-intro/credits from markers and counts down
   to the next episode. The user's star rating (`RatingControl`, Plex's 0–10 `userRating`) syncs
   through `/:/rate`; local items keep theirs across rescans.
+- **Seek previews** (`Player/SeekPreviews`, the card in `PlayerControls`): while the pointer skims a
+  seek bar (or drags its thumb), a card above it shows the picture, the time and the chapter.
+  - `SeekPreviews` opens a `FrameThumbnailer` on a thread of its own once the engine has opened
+    the file. It decodes only the newest position asked for, so skimming shows the latest picture
+    it can get to.
+  - The last 48 pictures are kept, keyed by keyframe (MKV cues) or by 2 s bucket.
+  - The card is 288 DIPs wide (176 in the mini player), and pictures are decoded at that width
+    times the display scale.
+  - While it shows, the full player's controls don't auto-hide.
+  - A file with no pictures (MKV without cues, unsupported codec) gets the time only.
 - **Display matching** (`Player/DisplayMatcher`, `Interop/DisplayControl`), per Settings →
   Playback → Display. It runs before the engine opens and undoes everything when the player closes,
   including when the window closes.
@@ -325,6 +340,30 @@ Next:
       MPEG-TS and MP4 subtitles; `FfmpegLibraries` loads them.
     - The package version must match the FFmpeg branch; check `ffmpeg.LibraryVersionMap`.
     - These libraries are separate from the FFmpeg statically linked inside libmpv.
+- **Preview pictures** (`Previews/`): `FrameThumbnailer` decodes keyframes with libavcodec through
+  a demuxer of its own, so playback isn't disturbed.
+  - **Finding the keyframe:**
+    - MKV: the last video cue at or before the time; its `CueRelativePosition` reads just that
+      block (`MatroskaDemuxer.ReadPacketAt`).
+    - MP4 and MPEG-TS: `FfmpegDemuxer.ReadKeyframe`, the first keyframe from where libavformat's
+      timestamp search lands, within about a GOP of the time.
+  - **Decoding:** software, slice-threaded on half the cores (at most 8), with the loop filters
+    skipped.
+  - **Cost over SMB per picture:**
+    - MKV: about 40 ms to read and 20–80 ms to decode.
+    - M2TS: 200–400 ms.
+  - **Colour** (`PreviewPicture`): each output pixel averages a 4×4 grid of its area.
+    - SDR goes straight through.
+    - PQ and HLG are tone-mapped with BT.2390's roll-off to 100-nit SDR white (as Jellyfin's
+      trickplay does; 203 looked dim), then converted to BT.709. The peak is the frame's 99.9th
+      percentile.
+    - **DV profile 5:** the base layer is IPTPQc2, so it's reshaped first, as libplacebo does it:
+      - Each component goes through its polynomial or MMR curve.
+      - Then the RPU's matrix (minus its offset) gives non-linear LMS; PQ linearizes it.
+      - Then its LMS matrix, followed by the fixed Hunt-Pointer-Estevez LMS→BT.2020 RGB.
+    - The RPU comes from libavcodec's `AV_FRAME_DATA_DOVI_METADATA`. FFmpeg.AutoGen doesn't bind
+      `dovi_meta.h`, so `Previews/DoviMetadata.cs` declares the structs from FFmpeg 9.0's header.
+      Recheck them against the header when FFmpeg's major version changes.
 - **TrueHD Atmos objects** (`SpatialAudio/`, `native/truehd-ffi/`):
   - **Decoder:** `native/truehd-ffi` is a Rust cdylib (`marquee_truehd.dll`) over the `truehd`
     crate 0.7.2 (Apache-2.0, a reverse-engineered research decoder from github.com/truehdd/truehdd).
@@ -404,6 +443,7 @@ src/Marquee.Playback/     Engine library shared by the app and the spike
                           HDR state and refresh rate
   SpatialAudio/           Windows Spatial Sound output, TrueHD Atmos playback
   Subtitles/              libass and FFmpeg subtitle renderers, sources, the subtitle thread
+  Previews/               Seek-bar pictures: keyframe decoding, SDR conversion, DV P5 reshaping
 spike/EngineSpike/        WinUI 3 test harness: both engines, A/B, probes, Atmos lab
   samples.txt             your test files, label|path (gitignored; copy samples.example.txt)
 native/truehd-ffi/        Rust C ABI over the truehd crate (TrueHD Atmos)
@@ -439,6 +479,8 @@ spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.
 - Seeing the app without clicking: `PrintWindow(hwnd, …, PW_RENDERFULLCONTENT)` captures the main
   window from a **DPI-aware** process (a DPI-unaware one gets a virtualized, cropped rect). It
   doesn't include the mpv overlay window; capture the screen region for that.
+- Hovering by `SetCursorPos` reaches whichever window is on top at that point, which is often the
+  terminal overlapping the app's bottom edge. Check `WindowFromPoint` first.
 - A running Marquee locks its exe; close it before rebuilding. `dotnet` prints in the Windows
   display language, so grep build logs for ` error ` rather than English text.
 
@@ -451,6 +493,8 @@ spike/EngineSpike/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/EngineSpike.
     TrueHD clip for truehdd.
   - `--sub-test <folder> [--sub-track N] [--start S] [--sub-reserve PX] <video or subtitle file>`
     renders subtitles to PNGs (MKV, MP4 or MPEG-TS).
+  - `--preview-test <folder> <video>` renders 12 seek-bar pictures spread over the file into
+    `previews.png`, with `report.txt` (keyframe times, colour path, read and decode times).
   - `--atmos-lab x.atmos --bed p2.caf` opens the Atmos lab.
   - `--dv-info out.txt <video>` writes the Dolby Vision configuration, the first RPU (e.g. P7 FEL
     vs MEL) and how many of the first 500 frames carry an RPU, and exits. On a dual-layer M2TS
@@ -519,6 +563,10 @@ the media server's address, audio endpoint names. What the code assumes about an
     on a 57 GB M2TS over SMB). `FfmpegDemuxer.SeekTo` enables the stream while it searches.
   - Searching for the first timestamp lands *after* the first keyframe, whose decode time is
     earlier than its presentation time, so the start of the file is a byte seek to 0.
+  - MP4 can't byte-seek, and seeking it to `long.MinValue` fails without moving: its seek
+    subtracts its PTS offset, which overflows. Seek to the stream's start time instead.
+  - Without `avformat_find_stream_info`, MP4's file duration stays unset; the streams' own
+    durations are there.
 - Blu-ray M2TS quirks:
   - Each PGS segment comes in its own PES packet, and libavformat hands them out one by one;
     collect them into display sets.

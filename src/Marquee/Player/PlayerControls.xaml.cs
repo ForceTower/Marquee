@@ -1,13 +1,16 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Marquee.Data;
+using Marquee.Playback.Previews;
 using Marquee.Shell;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
+using Windows.Foundation;
 
 namespace Marquee.Player;
 
@@ -17,33 +20,55 @@ namespace Marquee.Player;
 /// </summary>
 public sealed partial class PlayerControls : UserControl
 {
+    private const double PreviewWidth = 288;
+    private const double MiniPreviewWidth = 176;
+
+    /// <summary>The slider's track starts and ends this far in (the thumb's radius), as the drawn track does.</summary>
+    private const double TrackInset = 10;
+
     private readonly IPlayerActions _actions;
+    private readonly SeekPreviews _previews;
     private readonly List<Thumb> _seekThumbs = [];
     private bool _updating;
     private bool _dragging;
     private bool _filling;
     private int _openFlyouts;
+    private FrameworkElement? _previewArea;
+    private bool _pointerOverSeek;
+    private double _previewFraction;
+    private double _previewAspect = 16.0 / 9;
+    private WriteableBitmap? _previewBitmap;
 
-    internal PlayerControls(PlayerViewModel viewModel, IPlayerActions actions)
+    internal PlayerControls(PlayerViewModel viewModel, IPlayerActions actions, SeekPreviews previews)
     {
         ViewModel = viewModel;
         _actions = actions;
+        _previews = previews;
         InitializeComponent();
-        Seek.ThumbToolTipValueConverter = new ClockConverter();
-        MiniSeek.ThumbToolTipValueConverter = new ClockConverter();
 
         // The mini player's slider gets its template only once it first shows, hence SizeChanged.
         Seek.Loaded += (_, _) => HookSeekThumb(Seek);
         MiniSeek.SizeChanged += (_, _) => HookSeekThumb(MiniSeek);
+        HookSeekPreview(SeekArea, Seek);
+        HookSeekPreview(MiniSeekArea, MiniSeek);
         ViewModel.PropertyChanged += OnViewModelChanged;
-        Unloaded += (_, _) => ViewModel.PropertyChanged -= OnViewModelChanged;
+        _previews.Ready += OnPreviewReady;
+        Unloaded += (_, _) =>
+        {
+            ViewModel.PropertyChanged -= OnViewModelChanged;
+            _previews.Ready -= OnPreviewReady;
+        };
         Sync();
     }
 
     internal PlayerViewModel ViewModel { get; }
 
-    /// <summary>True while the user is using the controls, so they shouldn't auto-hide.</summary>
-    public bool IsBusy => _dragging || _openFlyouts > 0;
+    /// <summary>
+    /// True while the user is using the controls (dragging, skimming the seek bar, in a menu), so they
+    /// shouldn't auto-hide. Skimming doesn't count in the mini player, whose controls hide when the
+    /// pointer leaves it: that's polled, because the pointer's exit can be lost between its windows.
+    /// </summary>
+    public bool IsBusy => _dragging || _openFlyouts > 0 || PreviewCard.Visibility == Visibility.Visible && !ViewModel.IsCompact;
 
     /// <summary>The bottom bar's controls in DIPs, from the time row down (not the gradient fading in above it).</summary>
     public double BottomControlsHeight => ViewModel.IsCompact ? MiniBottom.ActualHeight : BottomBar.ActualHeight - BottomBar.Padding.Top;
@@ -70,7 +95,11 @@ public sealed partial class PlayerControls : UserControl
                 UpdateBadges();
                 break;
             case nameof(PlayerViewModel.IsCompact):
+                HidePreview();
                 UpdateCompact();
+                break;
+            case nameof(PlayerViewModel.ControlsVisible) when !ViewModel.ControlsVisible:
+                HidePreview();
                 break;
         }
     }
@@ -194,7 +223,136 @@ public sealed partial class PlayerControls : UserControl
         {
             _dragging = false;
             _actions.SeekTo(slider.Value, final: true);
+            if (!_pointerOverSeek)
+            {
+                HidePreview();
+            }
         };
+    }
+
+    /// <summary>
+    /// The preview follows the pointer along a seek bar, and the thumb while it's dragged (the
+    /// pointer can stray off the bar then). The slider marks pointer events handled, hence
+    /// handledEventsToo.
+    /// </summary>
+    private void HookSeekPreview(FrameworkElement area, Slider slider)
+    {
+        void Track(PointerRoutedEventArgs e)
+        {
+            _pointerOverSeek = true;
+            double trackWidth = Math.Max(1, area.ActualWidth - 2 * TrackInset);
+            double fraction = _dragging
+                ? slider.Value / Math.Max(1, slider.Maximum)
+                : (e.GetCurrentPoint(area).Position.X - TrackInset) / trackWidth;
+            ShowPreview(area, Math.Clamp(fraction, 0, 1));
+        }
+
+        area.AddHandler(PointerEnteredEvent, new PointerEventHandler((_, e) => Track(e)), true);
+        area.AddHandler(PointerMovedEvent, new PointerEventHandler((_, e) => Track(e)), true);
+        area.AddHandler(PointerExitedEvent, new PointerEventHandler((_, _) =>
+        {
+            _pointerOverSeek = false;
+            if (!_dragging)
+            {
+                HidePreview();
+            }
+        }), true);
+    }
+
+    private void ShowPreview(FrameworkElement area, double fraction)
+    {
+        if (!ViewModel.ControlsVisible)
+        {
+            HidePreview();
+            return;
+        }
+
+        _previewArea = area;
+        _previewFraction = fraction;
+        var position = TimeSpan.FromSeconds(fraction * ViewModel.Duration);
+        PreviewTime.Text = Format.Clock(position);
+        string? chapter = ChapterAt(position);
+        PreviewChapter.Text = chapter ?? "";
+        PreviewChapter.Visibility = chapter is null ? Visibility.Collapsed : Visibility.Visible;
+
+        double width = area == MiniSeekArea ? MiniPreviewWidth : PreviewWidth;
+        bool pictures = !_previews.Unavailable;
+        PreviewBox.Visibility = pictures ? Visibility.Visible : Visibility.Collapsed;
+        PreviewBox.Width = width;
+        PreviewBox.Height = Math.Round(width / _previewAspect);
+        PreviewChapter.MaxWidth = width - 20;
+        PreviewCard.Visibility = Visibility.Visible;
+        PlacePreview();
+        if (pictures)
+        {
+            _previews.Request(position, (int)Math.Round(width * (XamlRoot?.RasterizationScale ?? 1)));
+        }
+    }
+
+    /// <summary>Centres the card over its point on the bar, kept inside the controls, just above the bar.</summary>
+    private void PlacePreview()
+    {
+        if (_previewArea is not { } area || PreviewCard.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        const double Margin = 8;
+        double trackWidth = Math.Max(0, area.ActualWidth - 2 * TrackInset);
+        Point anchor = area.TransformToVisual(Root).TransformPoint(new Point(TrackInset + _previewFraction * trackWidth, 0));
+        double width = PreviewCard.ActualWidth > 0 ? PreviewCard.ActualWidth : PreviewBox.Width;
+        double height = PreviewCard.ActualHeight > 0 ? PreviewCard.ActualHeight : PreviewBox.Height + 40;
+        Canvas.SetLeft(PreviewCard, Math.Clamp(anchor.X - width / 2, Margin, Math.Max(Margin, Root.ActualWidth - width - Margin)));
+        Canvas.SetTop(PreviewCard, Math.Max(Margin, anchor.Y - height - 2));
+    }
+
+    private void PreviewCard_SizeChanged(object sender, SizeChangedEventArgs e) => PlacePreview();
+
+    private void HidePreview()
+    {
+        PreviewCard.Visibility = Visibility.Collapsed;
+        _previewArea = null;
+    }
+
+    /// <summary>Named as the bar's chapter line names them; nothing for a file without chapters.</summary>
+    private string? ChapterAt(TimeSpan position)
+    {
+        var chapters = ViewModel.Chapters;
+        if (chapters.Count < 2)
+        {
+            return null;
+        }
+
+        int index = chapters.Count(c => c.StartMs <= position.TotalMilliseconds) - 1;
+        return index < 0 ? null : chapters[index].Title ?? $"Chapter {index + 1}";
+    }
+
+    private void OnPreviewReady(PreviewFrame frame)
+    {
+        if (PreviewCard.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        double aspect = (double)frame.Width / frame.Height;
+        if (Math.Abs(aspect - _previewAspect) > 0.01)
+        {
+            _previewAspect = aspect;
+            PreviewBox.Height = Math.Round(PreviewBox.Width / aspect);
+        }
+
+        if (_previewBitmap is null || _previewBitmap.PixelWidth != frame.Width || _previewBitmap.PixelHeight != frame.Height)
+        {
+            _previewBitmap = new WriteableBitmap(frame.Width, frame.Height);
+            PreviewImage.Source = _previewBitmap;
+        }
+
+        using (var stream = _previewBitmap.PixelBuffer.AsStream())
+        {
+            stream.Write(frame.Pixels);
+        }
+
+        _previewBitmap.Invalidate();
     }
 
     private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
@@ -220,14 +378,24 @@ public sealed partial class PlayerControls : UserControl
     public void Reset()
     {
         _dragging = false;
+        HidePreview();
+        _previewAspect = 16.0 / 9;
+        _previewBitmap = null;
+        PreviewImage.Source = null;
         Sync();
     }
 
     private void Seek_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (!_updating)
+        if (_updating)
         {
-            _actions.SeekTo(e.NewValue, final: !_dragging);
+            return;
+        }
+
+        _actions.SeekTo(e.NewValue, final: !_dragging);
+        if (_dragging && sender is Slider slider)
+        {
+            ShowPreview(slider == MiniSeek ? MiniSeekArea : SeekArea, e.NewValue / Math.Max(1, slider.Maximum));
         }
     }
 
@@ -361,12 +529,4 @@ public sealed partial class PlayerControls : UserControl
     private void SwitchEngine_Click(object sender, RoutedEventArgs e) => _actions.SwitchEngine();
 
     private void Statistics_Click(object sender, RoutedEventArgs e) => _actions.ToggleStatistics();
-
-    private sealed class ClockConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, string language) =>
-            Format.Clock(TimeSpan.FromSeconds(value is double d ? d : 0));
-
-        public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
-    }
 }

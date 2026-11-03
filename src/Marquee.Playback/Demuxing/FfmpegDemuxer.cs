@@ -110,7 +110,7 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
             // An MPEG-TS clock starts anywhere (often minutes in); MP4's media time starts at zero,
             // as Windows' own source counts it.
             _originTicks = probeStreams && _format->start_time != ffmpeg.AV_NOPTS_VALUE ? _format->start_time * 10 : 0;
-            Duration = _format->duration > 0 ? TimeSpan.FromTicks(_format->duration * 10) : TimeSpan.Zero;
+            Duration = _format->duration > 0 ? TimeSpan.FromTicks(_format->duration * 10) : LongestStream();
             BuildTracks(readHdrMetadata: probeStreams);
             PairDolbyVisionLayers();
         }
@@ -129,6 +129,22 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
     /// </param>
     public static FfmpegDemuxer Open(string location, int bufferSize = 1 << 20, bool probeStreams = true) =>
         new(location, bufferSize, probeStreams);
+
+    /// <summary>Without probing, libavformat leaves the file's duration unset; MP4's header still gives each stream's.</summary>
+    private TimeSpan LongestStream()
+    {
+        long ticks = 0;
+        for (int i = 0; i < _format->nb_streams; i++)
+        {
+            AVStream* stream = _format->streams[i];
+            if (stream->duration > 0)
+            {
+                ticks = Math.Max(ticks, ffmpeg.av_rescale_q(stream->duration, stream->time_base, TickBase));
+            }
+        }
+
+        return TimeSpan.FromTicks(ticks);
+    }
 
     private void BuildTracks(bool readHdrMetadata)
     {
@@ -514,6 +530,41 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
         }
     }
 
+    /// <summary>
+    /// The first keyframe of <paramref name="track"/> from where a timestamp search for
+    /// <paramref name="near"/> lands, for a preview picture: within about a GOP of it, either side.
+    /// Reading position is lost: <see cref="Seek"/> before reading packets again.
+    /// </summary>
+    public MediaPacket? ReadKeyframe(int track, TimeSpan near)
+    {
+        const int MaxPackets = 600;
+        lock (_gate)
+        {
+            Reset();
+            AVStream* stream = Stream(track);
+            AVDiscard discard = stream->discard;
+            stream->discard = AVDiscard.AVDISCARD_DEFAULT;
+            try
+            {
+                SeekTo(track, Math.Max(near.Ticks, 0));
+                for (int i = 0; i < MaxPackets && Read(t => t == track) is { } read; i++)
+                {
+                    if (read.Packet.KeyFrame)
+                    {
+                        return read.Packet;
+                    }
+                }
+
+                return null;
+            }
+            finally
+            {
+                stream->discard = discard;
+                Reset();
+            }
+        }
+    }
+
     private (long Time, List<MediaPacket> Packets)? Scan(int track, bool video, long target, bool fromStart)
     {
         long? start = null;
@@ -591,7 +642,11 @@ internal sealed unsafe class FfmpegDemuxer : IDemuxer
         stream->discard = AVDiscard.AVDISCARD_DEFAULT;
         try
         {
-            long timestamp = ticks <= 0 ? long.MinValue : ffmpeg.av_rescale_q(ticks + _originTicks, TickBase, stream->time_base);
+            // Not long.MinValue for the start: MP4's seek subtracts its PTS offset from the
+            // timestamp, which overflows, and the seek fails without moving.
+            long timestamp = ticks <= 0
+                ? stream->start_time != ffmpeg.AV_NOPTS_VALUE ? stream->start_time : 0
+                : ffmpeg.av_rescale_q(ticks + _originTicks, TickBase, stream->time_base);
             if (ffmpeg.avformat_seek_file(_format, index, long.MinValue, timestamp, timestamp, 0) < 0)
             {
                 ffmpeg.av_seek_frame(_format, -1, 0, ffmpeg.AVSEEK_FLAG_BYTE);

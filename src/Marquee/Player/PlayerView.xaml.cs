@@ -41,6 +41,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     public static bool ReportsProgress { get; set; } = true;
 
     private readonly PlayerViewModel _vm = new();
+    private readonly SeekPreviews _previews;
     private readonly PlayerControls _inline;
     private readonly DispatcherQueueTimer _tick;
     private readonly DispatcherQueueTimer _seekTimer;
@@ -81,7 +82,8 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
                 ToggleCompact();
             }
         }));
-        _inline = new PlayerControls(_vm, this);
+        _previews = new SeekPreviews(DispatcherQueue);
+        _inline = new PlayerControls(_vm, this, _previews);
         InlineHost.Child = _inline;
         _vm.PropertyChanged += (_, e) =>
         {
@@ -279,6 +281,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
             await engine.OpenAsync(request);
             engine.Play();
             _request = request;
+            _previews.Load(request.Location);
             _vm.EngineText = engine.Description;
             UpdateTracks();
         }
@@ -756,7 +759,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
     {
         if (_overlay is null)
         {
-            _overlayControls = new PlayerControls(_vm, this);
+            _overlayControls = new PlayerControls(_vm, this, _previews);
             _overlay = new OverlayWindow(_hwnd, _overlayControls);
         }
 
@@ -1217,6 +1220,7 @@ public sealed partial class PlayerView : UserControl, IPlayerActions
         _mpv = null;
         _engine = null;
         _request = null;
+        _previews.Unload();
         _display.Restore();
         App.Window.HidePlayerLayer();
         App.Services.Db.NotifyChanged();

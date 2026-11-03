@@ -51,6 +51,9 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
     /// <summary>Subtitle test mode: a bottom strip in pixels (like the player controls) that bottom subtitles move out of.</summary>
     public int SubtitleReserve { get; init; }
 
+    /// <summary>Preview test mode: render seek-bar pictures spread over the file into a contact sheet in this folder, with a report, and exit.</summary>
+    public string? PreviewTestFolder { get; init; }
+
     public static SpikeOptions Parse(string[] args)
     {
         Engine? engine = null;
@@ -77,6 +80,7 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
         string? setHdr = null;
         int? subtitleTrack = null;
         int subtitleReserve = 0;
+        string? previewTestFolder = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -147,6 +151,9 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
                 case "--sub-reserve" when i + 1 < args.Length:
                     subtitleReserve = int.Parse(args[++i]);
                     break;
+                case "--preview-test" when i + 1 < args.Length:
+                    previewTestFolder = args[++i];
+                    break;
                 case "--audio-track" when i + 1 < args.Length:
                     audioTrack = int.Parse(args[++i]);
                     break;
@@ -180,6 +187,7 @@ public sealed record SpikeOptions(Engine? Engine, string? Path, bool Mute, int? 
             SubtitleTestFolder = subtitleTestFolder,
             SubtitleTrack = subtitleTrack,
             SubtitleReserve = subtitleReserve,
+            PreviewTestFolder = previewTestFolder,
         };
     }
 }
